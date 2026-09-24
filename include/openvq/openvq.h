@@ -59,7 +59,20 @@ struct Calibration {
   double loudness_weight = 0.35;
   double clipping_weight = 0.65;
   double bad_section_weight = 0.80;
-  double visqol_weight = 0.25;
+  // Penalty in MOS points for normalized ViSQOL degradation (5 - MOS) / 4.
+  double visqol_penalty_weight = 1.00;
+
+  // Final advanced fusion. These defaults reproduce the bootstrap 58/42
+  // base-to-advanced blend, but every value can be fitted to human MOS.
+  double final_bias = 0.0;
+  double base_penalty_weight = 0.58;
+  double advanced_multi_resolution_weight = 0.3864;
+  double advanced_temporal_weight = 0.2688;
+  double advanced_modulation_weight = 0.1680;
+  double advanced_asymmetry_weight = 0.3192;
+  double advanced_tilt_weight = 0.1344;
+  double advanced_level_weight = 0.1680;
+  double advanced_bad_interval_weight = 0.2352;
 };
 
 struct AnalysisOptions {
