@@ -320,19 +320,36 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   out.advanced.active_level_delta_db =
       std::abs(20 * std::log10((dr + 1e-9) / (rr + 1e-9)));
 
-  const double adv_pen = Clamp(
-      0.23 * (1 - out.advanced.multi_resolution_similarity) +
-          0.16 * (1 - out.advanced.temporal_envelope_similarity) +
-          0.10 * (1 - out.advanced.modulation_similarity) +
-          0.19 * out.advanced.asymmetric_disturbance +
-          0.08 * out.advanced.spectral_tilt_error +
-          0.10 * Clamp(out.advanced.active_level_delta_db / 18.0, 0.0, 1.0) +
-          0.14 * out.advanced.bad_interval_severity,
-      0.0,
-      1.0);
+  const auto& c = options.calibration;
+  const double base_penalty = Clamp(5.0 - out.base.mos, 0.0, 4.0);
+  const double level_penalty =
+      Clamp(out.advanced.active_level_delta_db / 18.0, 0.0, 1.0);
 
-  const double advanced_mos = Clamp(5.0 - 4.0 * adv_pen, 1.0, 5.0);
-  out.mos = Clamp(0.58 * out.base.mos + 0.42 * advanced_mos, 1.0, 5.0);
+  double final_penalty = std::max(0.0, c.final_bias);
+  final_penalty +=
+      std::max(0.0, c.base_penalty_weight) * base_penalty;
+  final_penalty +=
+      std::max(0.0, c.advanced_multi_resolution_weight) *
+      (1.0 - out.advanced.multi_resolution_similarity);
+  final_penalty +=
+      std::max(0.0, c.advanced_temporal_weight) *
+      (1.0 - out.advanced.temporal_envelope_similarity);
+  final_penalty +=
+      std::max(0.0, c.advanced_modulation_weight) *
+      (1.0 - out.advanced.modulation_similarity);
+  final_penalty +=
+      std::max(0.0, c.advanced_asymmetry_weight) *
+      out.advanced.asymmetric_disturbance;
+  final_penalty +=
+      std::max(0.0, c.advanced_tilt_weight) *
+      out.advanced.spectral_tilt_error;
+  final_penalty +=
+      std::max(0.0, c.advanced_level_weight) * level_penalty;
+  final_penalty +=
+      std::max(0.0, c.advanced_bad_interval_weight) *
+      out.advanced.bad_interval_severity;
+
+  out.mos = Clamp(5.0 - final_penalty, 1.0, 5.0);
   out.confidence = Clamp(
       0.65 * out.base.confidence +
           0.35 * Clamp(count / 3.0, 0.0, 1.0),
