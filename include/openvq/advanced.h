@@ -13,6 +13,14 @@ struct AdvancedDiagnostics {
   double spectral_tilt_error = 0.0;
   double active_level_delta_db = 0.0;
   double bad_interval_severity = 0.0;
+
+  // V0.2 telecom impairment diagnostics. These are reference-informed and
+  // remain independent of RF/RTP telemetry.
+  double echo_likelihood = 0.0;
+  double residual_energy = 0.0;
+  double temporal_edit = 0.0;
+  double clipping_plateau = 0.0;
+  double inactive_noise = 0.0;
 };
 
 struct AdvancedAnalysisResult {
