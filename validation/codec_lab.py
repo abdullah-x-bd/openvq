@@ -47,14 +47,14 @@ def main():
         cases=[
             ("g711","mulaw",["-ac","1","-ar","8000","-c:a","pcm_mulaw"],".wav",None),
             ("g711","alaw",["-ac","1","-ar","8000","-c:a","pcm_alaw"],".wav",None),
-            ("g722","64k",["-ac","1","-ar","16000","-c:a","g722"],".g722",["-f","g722","-ar","16000"]),
+            ("g722","64k",["-ac","1","-ar","16000","-c:a","g722"],".g722",["-f","g722"]),
             ("opus","8k",["-ac","1","-ar","48000","-c:a","libopus","-b:a","8k","-vbr","off"],".ogg",None),
             ("opus","12k",["-ac","1","-ar","48000","-c:a","libopus","-b:a","12k","-vbr","off"],".ogg",None),
             ("opus","24k",["-ac","1","-ar","48000","-c:a","libopus","-b:a","24k","-vbr","off"],".ogg",None),
             ("opus","48k",["-ac","1","-ar","48000","-c:a","libopus","-b:a","48k","-vbr","off"],".ogg",None),
         ]
         for idx,(codec,setting,enc_args,suffix,input_args) in enumerate(cases):
-            enc=td/f"c{idx}{suffix}"; dec=td/f"c{idx}.wav"
+            enc=td/f"c{idx}-encoded{suffix}"; dec=td/f"c{idx}-decoded.wav"
             try:
                 transcode(ref,enc,dec,enc_args,input_args)
                 q=score(args.cli,ref,dec)
