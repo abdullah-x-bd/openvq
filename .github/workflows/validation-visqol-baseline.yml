@@ -1,0 +1,58 @@
+name: validation-visqol-baseline
+on:
+  pull_request:
+    paths:
+      - "validation/visqol_*.py"
+      - ".github/workflows/validation-visqol-baseline.yml"
+  workflow_dispatch:
+jobs:
+  visqol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install Bazel and audio dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl soundfile libsndfile1-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub openpyxl remotezip requests
+      - name: Build and install Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          cd /tmp/visqol
+          python -m pip install .
+      - name: Fetch TCD and NISQA P501
+        run: |
+          mkdir -p validation/phase3/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip --local-dir validation/phase3/tcd
+          unzip -q validation/phase3/tcd/TCD-VOIP.zip -d validation/phase3/tcd/extracted
+          python validation/tcd_prepare.py validation/phase3/tcd/extracted validation/phase3/tcd/manifests
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          u="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          o=Path("validation/phase3/nisqa"); o.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(u) as z:
+              for n in [x for x in z.namelist() if "NISQA_TEST_P501/" in x and not x.endswith("/")]: z.extract(n,path=o)
+          PY
+          python validation/nisqa_p501_prepare.py validation/phase3/nisqa validation/phase3/nisqa-p501.csv
+      - name: Benchmark ViSQOL on TCD
+        run: |
+          python validation/visqol_batch.py validation/phase3/tcd/manifests/all.csv validation/phase3/tcd-visqol.csv
+          python validation/visqol_report.py validation/phase3/tcd-visqol.csv --out validation/phase3/tcd-visqol-report.json
+      - name: Benchmark ViSQOL on NISQA P501
+        run: |
+          python validation/visqol_batch.py validation/phase3/nisqa-p501.csv validation/phase3/nisqa-visqol.csv
+          python validation/visqol_report.py validation/phase3/nisqa-visqol.csv --out validation/phase3/nisqa-visqol-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-visqol-baselines
+          path: |
+            validation/phase3/*visqol*.csv
+            validation/phase3/*visqol-report.json
