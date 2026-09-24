@@ -34,6 +34,9 @@ def main():
         "advanced_tilt",
         "advanced_level",
         "advanced_bad_interval",
+        "advanced_echo",
+        "advanced_choppiness",
+        "advanced_residual_intrusion",
         "visqol_mos", "polqa_mos", "reference", "degraded"
     ]
 
@@ -79,6 +82,12 @@ def main():
                     float(advanced["active_level_delta_db"]) / 18.0),
                 "advanced_bad_interval": clamp(
                     float(advanced["bad_interval_severity"])),
+                "advanced_echo": clamp(
+                    float(advanced.get("echo_score", 0.0))),
+                "advanced_choppiness": clamp(
+                    float(advanced.get("choppiness_score", 0.0))),
+                "advanced_residual_intrusion": clamp(
+                    float(advanced.get("residual_intrusion", 0.0))),
                 "visqol_mos": row.get("visqol_mos", ""),
                 "polqa_mos": row.get("polqa_mos", ""),
                 "reference": row["reference"],
