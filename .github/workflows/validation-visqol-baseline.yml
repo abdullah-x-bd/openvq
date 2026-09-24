@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq curl libsndfile1-dev
+          sudo apt-get install -y -qq curl libsndfile1-dev libarmadillo-dev
           curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
           sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
           python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub openpyxl remotezip requests
@@ -32,7 +32,33 @@ jobs:
       - name: Build Google ViSQOL v3.3.3
         run: |
           git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
           cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - patched to system headers for reproducible historical build
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
           bazel build :visqol -c opt
       - name: Fetch TCD and prepare split
         run: |
