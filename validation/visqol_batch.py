@@ -18,7 +18,10 @@ def write(path,x,sr):
 def run_batch(binary,csv_path,out_path,speech):
     cmd=[binary,"--batch_input_csv",str(csv_path),"--results_csv",str(out_path)]
     if speech:cmd+=["--use_speech_mode"]
-    subprocess.check_call(cmd)
+    # ViSQOL resolves its default model under ./model, so run from the
+    # upstream repository root rather than OpenVQ's checkout.
+    repo_root = Path(binary).resolve().parent.parent
+    subprocess.check_call(cmd, cwd=repo_root)
 def load_scores(path):
     with open(path,newline="",encoding="utf-8") as f:
         return [float(r["moslqo"]) for r in csv.DictReader(f)]
