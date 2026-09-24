@@ -39,7 +39,8 @@ def main():
         "advanced_temporal_edit",
         "advanced_clip_plateau",
         "advanced_inactive_noise",
-        "visqol_mos", "polqa_mos", "reference", "degraded"
+        "visqol_mos", "polqa_mos", "condition_id", "family", "filename",
+        "reference", "degraded"
     ]
 
     with open(args.manifest, newline="", encoding="utf-8") as src, \
@@ -96,6 +97,9 @@ def main():
                     float(advanced.get("inactive_noise", 0.0))),
                 "visqol_mos": row.get("visqol_mos", ""),
                 "polqa_mos": row.get("polqa_mos", ""),
+                "condition_id": row.get("condition_id", ""),
+                "family": row.get("family", ""),
+                "filename": row.get("filename", ""),
                 "reference": row["reference"],
                 "degraded": row["degraded"],
             })
