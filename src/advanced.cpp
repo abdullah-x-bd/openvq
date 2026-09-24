@@ -259,6 +259,155 @@ double ModulationSimilarity(
   return Cosine(ma, mb);
 }
 
+
+struct ResidualDiagnostics {
+  double echo = 0.0;
+  double choppiness = 0.0;
+  double intrusion = 0.0;
+};
+
+void BuildAlignedSignals(
+    const std::vector<float>& r,
+    const std::vector<float>& d,
+    long delay,
+    std::vector<float>* ar,
+    std::vector<float>* ad) {
+  size_t rb = delay < 0 ? static_cast<size_t>(-delay) : 0;
+  size_t db = delay > 0 ? static_cast<size_t>(delay) : 0;
+  if (rb >= r.size() || db >= d.size()) return;
+  const size_t n = std::min(r.size() - rb, d.size() - db);
+  ar->assign(r.begin() + rb, r.begin() + rb + n);
+  ad->assign(d.begin() + db, d.begin() + db + n);
+}
+
+std::vector<double> BlockAverage(
+    const std::vector<float>& x, size_t block) {
+  std::vector<double> out;
+  if (block == 0) return out;
+  out.reserve((x.size() + block - 1) / block);
+  for (size_t b = 0; b < x.size(); b += block) {
+    const size_t e = std::min(x.size(), b + block);
+    double s = 0.0;
+    for (size_t i = b; i < e; ++i) s += x[i];
+    out.push_back(s / std::max<size_t>(1, e - b));
+  }
+  return out;
+}
+
+double CenteredCorrelationAtLag(
+    const std::vector<double>& a,
+    const std::vector<double>& b,
+    size_t lag) {
+  if (a.size() <= lag + 16 || b.size() <= lag + 16) return 0.0;
+  const size_t n = std::min(a.size(), b.size() - lag);
+  if (n < 16) return 0.0;
+
+  double ma = 0.0, mb = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    ma += a[i];
+    mb += b[i + lag];
+  }
+  ma /= n;
+  mb /= n;
+
+  double aa = 0.0, bb = 0.0, ab = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    const double x = a[i] - ma;
+    const double y = b[i + lag] - mb;
+    aa += x * x;
+    bb += y * y;
+    ab += x * y;
+  }
+  if (aa < kEps || bb < kEps) return 0.0;
+  return Clamp(ab / std::sqrt(aa * bb), -1.0, 1.0);
+}
+
+ResidualDiagnostics AnalyzeResidualStructure(
+    const std::vector<float>& r,
+    const std::vector<float>& d,
+    int sr,
+    long delay) {
+  ResidualDiagnostics out;
+  std::vector<float> ar, ad;
+  BuildAlignedSignals(r, d, delay, &ar, &ad);
+  if (ar.size() < static_cast<size_t>(sr / 2)) return out;
+
+  // Direct-path least-squares subtraction. Echo is then sought in the residual,
+  // not in the already-explained aligned speech.
+  double rr = 0.0, rd = 0.0, dd = 0.0;
+  for (size_t i = 0; i < ar.size(); ++i) {
+    rr += static_cast<double>(ar[i]) * ar[i];
+    rd += static_cast<double>(ar[i]) * ad[i];
+    dd += static_cast<double>(ad[i]) * ad[i];
+  }
+  const double gain = rr > kEps ? rd / rr : 0.0;
+  std::vector<float> residual(ar.size());
+  double residual_energy = 0.0;
+  for (size_t i = 0; i < ar.size(); ++i) {
+    residual[i] = static_cast<float>(ad[i] - gain * ar[i]);
+    residual_energy += static_cast<double>(residual[i]) * residual[i];
+  }
+  const double residual_ratio =
+      std::sqrt(residual_energy / (dd + kEps));
+
+  // Use a signed 1 kHz representation for delayed-copy detection. Searching
+  // from 20 to 450 ms covers common perceptually salient talker echo delays
+  // while avoiding the direct path.
+  const size_t block = static_cast<size_t>(std::max(1, sr / 1000));
+  auto ref_ds = BlockAverage(ar, block);
+  auto res_ds = BlockAverage(residual, block);
+  double best_echo_corr = 0.0;
+  for (size_t lag_ms = 20; lag_ms <= 450; lag_ms += 5) {
+    best_echo_corr = std::max(
+        best_echo_corr,
+        std::abs(CenteredCorrelationAtLag(ref_ds, res_ds, lag_ms)));
+  }
+  out.echo = Clamp(
+      best_echo_corr * Clamp(residual_ratio * 1.8, 0.0, 1.0),
+      0.0,
+      1.0);
+
+  // Detect short speech holes after normalizing out global gain. This keeps a
+  // quiet but continuous call from looking "choppy".
+  const size_t micro = static_cast<size_t>(std::max(1, sr * 5 / 1000));
+  std::vector<double> ratios;
+  double peak_ref = 0.0;
+  for (size_t b = 0; b + micro <= ar.size(); b += micro) {
+    peak_ref = std::max(peak_ref, Rms(ar, b, b + micro));
+  }
+  const double active_threshold = peak_ref * 0.04;
+  for (size_t b = 0; b + micro <= ar.size(); b += micro) {
+    const double er = Rms(ar, b, b + micro);
+    if (er < active_threshold) continue;
+    const double ed = Rms(ad, b, b + micro);
+    ratios.push_back(ed / (er + 1e-9));
+  }
+  if (ratios.size() >= 8) {
+    const double median_ratio = std::max(1e-6, Quantile(ratios, 0.5));
+    std::vector<double> holes;
+    std::vector<double> transitions;
+    double previous = ratios.front() / median_ratio;
+    for (double raw : ratios) {
+      const double q = Clamp(raw / median_ratio, 0.0, 2.5);
+      holes.push_back(Clamp((0.65 - q) / 0.65, 0.0, 1.0));
+      transitions.push_back(Clamp(std::abs(q - previous) / 1.2, 0.0, 1.0));
+      previous = q;
+    }
+    const double hole_mean =
+        std::accumulate(holes.begin(), holes.end(), 0.0) / holes.size();
+    const double transition_tail = Quantile(transitions, 0.90);
+    out.choppiness =
+        Clamp(0.72 * hole_mean + 0.28 * transition_tail, 0.0, 1.0);
+  }
+
+  // Residual energy not explained by the direct path or a coherent delayed
+  // copy is a generic added-interference signal useful for competing speakers
+  // and nonstationary foreground noise.
+  out.intrusion =
+      Clamp(residual_ratio - 0.65 * out.echo, 0.0, 1.0);
+  return out;
+}
+
 }  // namespace
 
 AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
@@ -320,6 +469,12 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   out.advanced.active_level_delta_db =
       std::abs(20 * std::log10((dr + 1e-9) / (rr + 1e-9)));
 
+  const auto residual =
+      AnalyzeResidualStructure(r, d, sr, delay);
+  out.advanced.echo_score = residual.echo;
+  out.advanced.choppiness_score = residual.choppiness;
+  out.advanced.residual_intrusion = residual.intrusion;
+
   const auto& c = options.calibration;
   const double base_penalty = Clamp(5.0 - out.base.mos, 0.0, 4.0);
   const double level_penalty =
@@ -348,6 +503,15 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   final_penalty +=
       std::max(0.0, c.advanced_bad_interval_weight) *
       out.advanced.bad_interval_severity;
+  final_penalty +=
+      std::max(0.0, c.advanced_echo_weight) *
+      out.advanced.echo_score;
+  final_penalty +=
+      std::max(0.0, c.advanced_choppiness_weight) *
+      out.advanced.choppiness_score;
+  final_penalty +=
+      std::max(0.0, c.advanced_residual_intrusion_weight) *
+      out.advanced.residual_intrusion;
 
   out.mos = Clamp(5.0 - final_penalty, 1.0, 5.0);
   out.confidence = Clamp(
@@ -381,7 +545,11 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
     << ",\"active_level_delta_db\":"
     << r.advanced.active_level_delta_db
     << ",\"bad_interval_severity\":"
-    << r.advanced.bad_interval_severity << "}}";
+    << r.advanced.bad_interval_severity
+    << ",\"echo_score\":" << r.advanced.echo_score
+    << ",\"choppiness_score\":" << r.advanced.choppiness_score
+    << ",\"residual_intrusion\":" << r.advanced.residual_intrusion
+    << "}}";
   return o.str();
 }
 
