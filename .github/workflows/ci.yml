@@ -6,7 +6,7 @@ jobs:
   native:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -15,3 +15,25 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Python syntax
         run: python3 -m py_compile python/calibrate.py python/calibrate_advanced.py python/benchmark.py python/build_training_table.py tools/generate_degradations.py tools/visqol_score.py
+
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Install Android native toolchain
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+      - name: Build Android AAR
+        run: gradle -p android :openvq-android:assembleDebug --no-daemon --stacktrace
