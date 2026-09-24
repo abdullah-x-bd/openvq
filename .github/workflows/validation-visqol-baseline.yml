@@ -21,11 +21,11 @@ jobs:
           curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
           sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
           python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub openpyxl remotezip requests
-      - name: Build and install Google ViSQOL v3.3.3
+      - name: Build Google ViSQOL v3.3.3
         run: |
           git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
           cd /tmp/visqol
-          python -m pip install .
+          bazel build :visqol -c opt
       - name: Fetch TCD and NISQA P501
         run: |
           mkdir -p validation/phase3/tcd
@@ -43,11 +43,11 @@ jobs:
           python validation/nisqa_p501_prepare.py validation/phase3/nisqa validation/phase3/nisqa-p501.csv
       - name: Benchmark ViSQOL on TCD
         run: |
-          python validation/visqol_batch.py validation/phase3/tcd/manifests/all.csv validation/phase3/tcd-visqol.csv
+          python validation/visqol_batch.py validation/phase3/tcd/manifests/all.csv validation/phase3/tcd-visqol.csv --binary /tmp/visqol/bazel-bin/visqol
           python validation/visqol_report.py validation/phase3/tcd-visqol.csv --out validation/phase3/tcd-visqol-report.json
       - name: Benchmark ViSQOL on NISQA P501
         run: |
-          python validation/visqol_batch.py validation/phase3/nisqa-p501.csv validation/phase3/nisqa-visqol.csv
+          python validation/visqol_batch.py validation/phase3/nisqa-p501.csv validation/phase3/nisqa-visqol.csv --binary /tmp/visqol/bazel-bin/visqol
           python validation/visqol_report.py validation/phase3/nisqa-visqol.csv --out validation/phase3/nisqa-visqol-report.json
       - uses: actions/upload-artifact@v4
         if: always()
