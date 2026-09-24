@@ -1,0 +1,32 @@
+name: validation-codec-lab
+on:
+  pull_request:
+    paths:
+      - "validation/codec_lab.py"
+      - "src/**"
+      - "include/**"
+      - ".github/workflows/validation-codec-lab.yml"
+  workflow_dispatch:
+jobs:
+  codecs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install codecs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Build OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+      - name: Run codec matrix
+        run: |
+          mkdir -p validation/out
+          python3 validation/codec_lab.py --cli ./build/openvq_cli \
+            --out validation/out/codec-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-codec-validation
+          path: validation/out/codec-results.json
