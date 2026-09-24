@@ -17,7 +17,7 @@ jobs:
       - name: Install Bazel and audio dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq curl soundfile libsndfile1-dev
+          sudo apt-get install -y -qq curl libsndfile1-dev
           curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
           sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
           python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub openpyxl remotezip requests
