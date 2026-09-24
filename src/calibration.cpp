@@ -39,6 +39,11 @@ Calibration LoadCalibration(const std::string& path) {
     else if (key == "advanced_tilt_weight") c.advanced_tilt_weight = value;
     else if (key == "advanced_level_weight") c.advanced_level_weight = value;
     else if (key == "advanced_bad_interval_weight") c.advanced_bad_interval_weight = value;
+    else if (key == "advanced_echo_weight") c.advanced_echo_weight = value;
+    else if (key == "advanced_residual_weight") c.advanced_residual_weight = value;
+    else if (key == "advanced_temporal_edit_weight") c.advanced_temporal_edit_weight = value;
+    else if (key == "advanced_clip_plateau_weight") c.advanced_clip_plateau_weight = value;
+    else if (key == "advanced_inactive_noise_weight") c.advanced_inactive_noise_weight = value;
   }
   return c;
 }
