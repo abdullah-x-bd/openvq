@@ -39,6 +39,9 @@ Calibration LoadCalibration(const std::string& path) {
     else if (key == "advanced_tilt_weight") c.advanced_tilt_weight = value;
     else if (key == "advanced_level_weight") c.advanced_level_weight = value;
     else if (key == "advanced_bad_interval_weight") c.advanced_bad_interval_weight = value;
+    else if (key == "advanced_echo_weight") c.advanced_echo_weight = value;
+    else if (key == "advanced_choppiness_weight") c.advanced_choppiness_weight = value;
+    else if (key == "advanced_residual_intrusion_weight") c.advanced_residual_intrusion_weight = value;
   }
   return c;
 }
