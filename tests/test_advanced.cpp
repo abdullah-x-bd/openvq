@@ -49,6 +49,21 @@ int main() {
          clean.advanced.choppiness_score + 0.01);
   assert(choppy_result.mos < clean.mos);
 
+  // Repeat-last-frame PLC should also be treated as choppiness even when
+  // there are no zero-valued holes.
+  auto frozen = ref;
+  const size_t frame20 = 48000 * 20 / 1000;
+  for (size_t start = 48000; start + frame20 < frozen.samples.size();
+       start += 48000 / 4) {
+    std::copy(frozen.samples.begin() + start - frame20,
+              frozen.samples.begin() + start,
+              frozen.samples.begin() + start);
+  }
+  auto frozen_result = analyzer.Analyze(ref, frozen);
+  assert(frozen_result.advanced.choppiness_score >
+         clean.advanced.choppiness_score + 0.005);
+  assert(frozen_result.mos < clean.mos);
+
   auto bad = ref;
   std::fill(
       bad.samples.begin() + 48000,
