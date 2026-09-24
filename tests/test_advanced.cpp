@@ -37,5 +37,18 @@ int main() {
       result.advanced.bad_interval_severity >
       clean.advanced.bad_interval_severity);
 
+  openvq::AnalysisOptions calibrated;
+  calibrated.calibration.final_bias = 1.0;
+  calibrated.calibration.base_penalty_weight = 0.0;
+  calibrated.calibration.advanced_multi_resolution_weight = 0.0;
+  calibrated.calibration.advanced_temporal_weight = 0.0;
+  calibrated.calibration.advanced_modulation_weight = 0.0;
+  calibrated.calibration.advanced_asymmetry_weight = 0.0;
+  calibrated.calibration.advanced_tilt_weight = 0.0;
+  calibrated.calibration.advanced_level_weight = 0.0;
+  calibrated.calibration.advanced_bad_interval_weight = 0.0;
+  auto bias_only = analyzer.Analyze(ref, ref, calibrated);
+  assert(std::abs(bias_only.mos - 4.0) < 1e-6);
+
   std::cout << "Advanced OpenVQ tests passed\n";
 }
