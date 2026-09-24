@@ -97,6 +97,7 @@ class Analyzer {
 };
 
 AudioBuffer LoadWav(const std::string& path);
+Calibration LoadCalibration(const std::string& path);
 std::string ToString(BandwidthClass bandwidth);
 std::string ToString(EventType type);
 std::string ToJson(const AnalysisResult& result);
