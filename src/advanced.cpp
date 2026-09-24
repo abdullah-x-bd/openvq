@@ -294,16 +294,20 @@ std::vector<double> BlockAverage(
   return out;
 }
 
-double CenteredCorrelationAtLag(
+double CenteredCorrelationAtLagWindow(
     const std::vector<double>& a,
     const std::vector<double>& b,
-    size_t lag) {
+    size_t lag,
+    size_t begin,
+    size_t end) {
   if (a.size() <= lag + 16 || b.size() <= lag + 16) return 0.0;
-  const size_t n = std::min(a.size(), b.size() - lag);
+  end = std::min(end, std::min(a.size(), b.size() - lag));
+  begin = std::min(begin, end);
+  const size_t n = end - begin;
   if (n < 16) return 0.0;
 
   double ma = 0.0, mb = 0.0;
-  for (size_t i = 0; i < n; ++i) {
+  for (size_t i = begin; i < end; ++i) {
     ma += a[i];
     mb += b[i + lag];
   }
@@ -311,7 +315,7 @@ double CenteredCorrelationAtLag(
   mb /= n;
 
   double aa = 0.0, bb = 0.0, ab = 0.0;
-  for (size_t i = 0; i < n; ++i) {
+  for (size_t i = begin; i < end; ++i) {
     const double x = a[i] - ma;
     const double y = b[i + lag] - mb;
     aa += x * x;
@@ -320,6 +324,14 @@ double CenteredCorrelationAtLag(
   }
   if (aa < kEps || bb < kEps) return 0.0;
   return Clamp(ab / std::sqrt(aa * bb), -1.0, 1.0);
+}
+
+double CenteredCorrelationAtLag(
+    const std::vector<double>& a,
+    const std::vector<double>& b,
+    size_t lag) {
+  return CenteredCorrelationAtLagWindow(
+      a, b, lag, 0, std::min(a.size(), b.size()));
 }
 
 ResidualDiagnostics AnalyzeResidualStructure(
@@ -357,13 +369,39 @@ ResidualDiagnostics AnalyzeResidualStructure(
   auto ref_ds = BlockAverage(ar, block);
   auto res_ds = BlockAverage(residual, block);
   double best_echo_corr = 0.0;
+  size_t best_echo_lag = 0;
   for (size_t lag_ms = 20; lag_ms <= 450; lag_ms += 5) {
-    best_echo_corr = std::max(
-        best_echo_corr,
-        std::abs(CenteredCorrelationAtLag(ref_ds, res_ds, lag_ms)));
+    const double corr =
+        std::abs(CenteredCorrelationAtLag(ref_ds, res_ds, lag_ms));
+    if (corr > best_echo_corr) {
+      best_echo_corr = corr;
+      best_echo_lag = lag_ms;
+    }
   }
+
+  // A true echo is a coherent delayed copy over much of the utterance. PLC,
+  // time warps and local jitter can create a large global delayed correlation,
+  // but it normally does not persist across independent temporal quarters.
+  std::vector<double> echo_quarters;
+  if (best_echo_lag > 0) {
+    const size_t usable =
+        std::min(ref_ds.size(), res_ds.size() > best_echo_lag
+                                    ? res_ds.size() - best_echo_lag
+                                    : 0);
+    for (int q = 0; q < 4; ++q) {
+      const size_t begin = usable * q / 4;
+      const size_t end = usable * (q + 1) / 4;
+      if (end > begin + 20) {
+        echo_quarters.push_back(std::abs(CenteredCorrelationAtLagWindow(
+            ref_ds, res_ds, best_echo_lag, begin, end)));
+      }
+    }
+  }
+  const double echo_consistency =
+      echo_quarters.empty() ? 0.0 : Quantile(echo_quarters, 0.25);
   out.echo = Clamp(
-      best_echo_corr * Clamp(residual_ratio * 1.8, 0.0, 1.0),
+      std::sqrt(std::max(0.0, best_echo_corr * echo_consistency)) *
+          Clamp(residual_ratio * 1.8, 0.0, 1.0),
       0.0,
       1.0);
 
@@ -382,6 +420,8 @@ ResidualDiagnostics AnalyzeResidualStructure(
     const double ed = Rms(ad, b, b + micro);
     ratios.push_back(ed / (er + 1e-9));
   }
+  double hole_component = 0.0;
+  double transition_component = 0.0;
   if (ratios.size() >= 8) {
     const double median_ratio = std::max(1e-6, Quantile(ratios, 0.5));
     std::vector<double> holes;
@@ -393,12 +433,51 @@ ResidualDiagnostics AnalyzeResidualStructure(
       transitions.push_back(Clamp(std::abs(q - previous) / 1.2, 0.0, 1.0));
       previous = q;
     }
-    const double hole_mean =
+    hole_component =
         std::accumulate(holes.begin(), holes.end(), 0.0) / holes.size();
-    const double transition_tail = Quantile(transitions, 0.90);
-    out.choppiness =
-        Clamp(0.72 * hole_mean + 0.28 * transition_tail, 0.0, 1.0);
+    transition_component = Quantile(transitions, 0.90);
   }
+
+  // Packet-loss concealment often repeats the previous waveform rather than
+  // inserting silence. Compare the amount of frame-to-frame change in the
+  // degraded stream with the change the clean reference should have had.
+  const size_t plc_frame =
+      static_cast<size_t>(std::max(1, sr * 20 / 1000));
+  std::vector<double> freezes;
+  for (size_t b = plc_frame; b + plc_frame <= ar.size(); b += plc_frame) {
+    const double active =
+        std::max(Rms(ar, b - plc_frame, b), Rms(ar, b, b + plc_frame));
+    if (active < active_threshold) continue;
+
+    double ref_delta = 0.0, deg_delta = 0.0;
+    double ref_energy = 0.0, deg_energy = 0.0;
+    for (size_t i = 0; i < plc_frame; ++i) {
+      const double r0 = ar[b - plc_frame + i];
+      const double r1 = ar[b + i];
+      const double d0 = ad[b - plc_frame + i];
+      const double d1 = ad[b + i];
+      ref_delta += (r1 - r0) * (r1 - r0);
+      deg_delta += (d1 - d0) * (d1 - d0);
+      ref_energy += r0 * r0 + r1 * r1;
+      deg_energy += d0 * d0 + d1 * d1;
+    }
+    const double nr =
+        std::sqrt(ref_delta / (ref_energy + kEps));
+    const double nd =
+        std::sqrt(deg_delta / (deg_energy + kEps));
+    if (nr > 0.08) {
+      const double change_ratio = nd / (nr + 1e-9);
+      freezes.push_back(Clamp((0.55 - change_ratio) / 0.55, 0.0, 1.0));
+    }
+  }
+  const double freeze_component =
+      freezes.empty() ? 0.0 : Quantile(freezes, 0.90);
+  out.choppiness = Clamp(
+      0.46 * hole_component +
+          0.18 * transition_component +
+          0.36 * freeze_component,
+      0.0,
+      1.0);
 
   // Residual energy not explained by the direct path or a coherent delayed
   // copy is a generic added-interference signal useful for competing speakers
