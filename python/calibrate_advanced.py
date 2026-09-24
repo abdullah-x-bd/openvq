@@ -25,6 +25,11 @@ FEATURES = [
     "advanced_tilt",
     "advanced_level",
     "advanced_bad_interval",
+    "advanced_echo",
+    "advanced_residual",
+    "advanced_temporal_edit",
+    "advanced_clip_plateau",
+    "advanced_inactive_noise",
 ]
 
 OUTPUT_KEYS = [
@@ -36,9 +41,17 @@ OUTPUT_KEYS = [
     "advanced_tilt_weight",
     "advanced_level_weight",
     "advanced_bad_interval_weight",
+    "advanced_echo_weight",
+    "advanced_residual_weight",
+    "advanced_temporal_edit_weight",
+    "advanced_clip_plateau_weight",
+    "advanced_inactive_noise_weight",
 ]
 
-DEFAULTS = [0.58, 0.3864, 0.2688, 0.1680, 0.3192, 0.1344, 0.1680, 0.2352]
+DEFAULTS = [
+    0.58, 0.3864, 0.2688, 0.1680, 0.3192, 0.1344, 0.1680, 0.2352,
+    0.35, 0.20, 0.30, 0.25, 0.20,
+]
 
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
