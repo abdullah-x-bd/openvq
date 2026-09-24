@@ -1,0 +1,37 @@
+name: validation-nisqa-probe
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/validation-nisqa-probe.yml"
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install KaggleHub
+        run: python -m pip install --upgrade kagglehub
+      - name: Download only NISQA TEST P501
+        run: |
+          python - <<'PY'
+          import kagglehub, pathlib
+          p=kagglehub.dataset_download(
+              "pratt3000/nisqa-corpus",
+              path="NISQA_Corpus/NISQA_TEST_P501",
+              output_dir="validation/nisqa_probe"
+          )
+          print(p)
+          PY
+      - name: Inventory
+        run: |
+          find validation/nisqa_probe -maxdepth 6 -type f | sort | tee validation/nisqa_probe/inventory.txt
+          du -sh validation/nisqa_probe | tee validation/nisqa_probe/size.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nisqa-p501-probe
+          path: |
+            validation/nisqa_probe/inventory.txt
+            validation/nisqa_probe/size.txt
