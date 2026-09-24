@@ -7,7 +7,8 @@ re-extracted with that base calibration.
 Required CSV columns:
 human_mos,base_penalty,advanced_multi_resolution,advanced_temporal,
 advanced_modulation,advanced_asymmetry,advanced_tilt,advanced_level,
-advanced_bad_interval
+advanced_bad_interval,advanced_echo,advanced_choppiness,
+advanced_residual_intrusion
 
 All learned weights are constrained to be non-negative so increasing a
 measured degradation cannot improve the predicted MOS.
@@ -25,6 +26,9 @@ FEATURES = [
     "advanced_tilt",
     "advanced_level",
     "advanced_bad_interval",
+    "advanced_echo",
+    "advanced_choppiness",
+    "advanced_residual_intrusion",
 ]
 
 OUTPUT_KEYS = [
@@ -36,9 +40,15 @@ OUTPUT_KEYS = [
     "advanced_tilt_weight",
     "advanced_level_weight",
     "advanced_bad_interval_weight",
+    "advanced_echo_weight",
+    "advanced_choppiness_weight",
+    "advanced_residual_intrusion_weight",
 ]
 
-DEFAULTS = [0.58, 0.3864, 0.2688, 0.1680, 0.3192, 0.1344, 0.1680, 0.2352]
+DEFAULTS = [
+    0.58, 0.3864, 0.2688, 0.1680, 0.3192, 0.1344, 0.1680, 0.2352,
+    0.40, 0.40, 0.20,
+]
 
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
