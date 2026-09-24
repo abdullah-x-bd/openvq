@@ -16,7 +16,9 @@ def resample(x,sr,target):
 def write(path,x,sr):
     sf.write(path,np.asarray(x,dtype=np.float32),sr,subtype="PCM_16")
 def run_batch(binary,csv_path,out_path,speech):
-    repo_root = Path(binary).resolve().parent.parent
+    # Do not resolve the Bazel binary symlink: resolving it jumps into
+    # ~/.cache/bazel/... and makes the source-tree model path disappear.
+    repo_root = Path(binary).absolute().parent.parent
     if speech:
         model = repo_root / "model" / "lattice_tcditugenmeetpackhref_ls2_nl60_lr12_bs2048_learn.005_ep2400_train1_7_raw.tflite"
     else:
