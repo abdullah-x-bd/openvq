@@ -4,6 +4,7 @@ on:
     paths:
       - "validation/tcd_*.py"
       - "python/calibrate*.py"
+      - "python/build_training_table.py"
       - "src/**"
       - "include/**"
       - ".github/workflows/validation-tcd-human-mos.yml"
@@ -30,51 +31,46 @@ jobs:
           hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip \
             --local-dir validation/tcd
           unzip -q validation/tcd/TCD-VOIP.zip -d validation/tcd/extracted
-      - name: Prepare leakage-resistant condition split
+      - name: Prepare TCD condition metadata
         run: |
           python validation/tcd_prepare.py validation/tcd/extracted validation/tcd/manifests
-      - name: Zero-shot frozen benchmark
+      - name: Zero-shot benchmark
         run: |
-          python validation/tcd_score.py validation/tcd/manifests/all.csv validation/tcd/zero-shot.csv
+          python validation/tcd_score.py \
+            validation/tcd/manifests/all.csv validation/tcd/zero-shot.csv
           python validation/tcd_report.py validation/tcd/zero-shot.csv \
             --out validation/tcd/zero-shot-report.json
-      - name: Fit base MOS calibration on train only
+      - name: Extract v0.2 feature table once
         run: |
           python python/build_training_table.py \
-            validation/tcd/manifests/train.csv validation/tcd/train-base-features.csv
-          python python/calibrate.py validation/tcd/train-base-features.csv \
-            --out validation/tcd/openvq-base.calibration
-      - name: Fit advanced fusion on train only
+            validation/tcd/manifests/all.csv validation/tcd/all-features.csv
+      - name: Condition-group five-fold cross-validation
+        env:
+          PYTHONPATH: python
         run: |
-          python python/build_training_table.py \
-            validation/tcd/manifests/train.csv validation/tcd/train-advanced-features.csv \
-            --calibration validation/tcd/openvq-base.calibration
-          python python/calibrate_advanced.py validation/tcd/train-advanced-features.csv \
-            --base-calibration validation/tcd/openvq-base.calibration \
-            --out validation/tcd/openvq-tcd.calibration
-      - name: Evaluate locked TCD test split
+          python validation/tcd_group_cv.py validation/tcd/all-features.csv \
+            --folds 5 --out validation/tcd/group-cv-report.json
+      - name: Fit transferable TCD development calibration
         run: |
-          python validation/tcd_score.py \
-            validation/tcd/manifests/test.csv validation/tcd/test-calibrated.csv \
-            --calibration validation/tcd/openvq-tcd.calibration
-          python validation/tcd_report.py validation/tcd/test-calibrated.csv \
-            --out validation/tcd/test-calibrated-report.json
-      - name: Evaluate untouched development split for diagnostics
+          python python/calibrate_joint.py validation/tcd/all-features.csv \
+            --out validation/tcd/openvq-tcd-v02.calibration
+      - name: In-sample diagnostic only
         run: |
           python validation/tcd_score.py \
-            validation/tcd/manifests/dev.csv validation/tcd/dev-calibrated.csv \
-            --calibration validation/tcd/openvq-tcd.calibration
-          python validation/tcd_report.py validation/tcd/dev-calibrated.csv \
-            --out validation/tcd/dev-calibrated-report.json
+            validation/tcd/manifests/all.csv validation/tcd/all-calibrated.csv \
+            --calibration validation/tcd/openvq-tcd-v02.calibration
+          python validation/tcd_report.py validation/tcd/all-calibrated.csv \
+            --out validation/tcd/in-sample-report.json
       - name: Upload TCD validation
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: openvq-tcd-validation
+          name: openvq-tcd-validation-v02
           path: |
             validation/tcd/manifests/*.json
             validation/tcd/manifests/*.csv
             validation/tcd/*report.json
             validation/tcd/*.calibration
-            validation/tcd/*calibrated.csv
+            validation/tcd/all-features.csv
             validation/tcd/zero-shot.csv
+            validation/tcd/all-calibrated.csv
