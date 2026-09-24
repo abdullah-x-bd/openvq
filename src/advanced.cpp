@@ -1,4 +1,5 @@
 #include "openvq/advanced.h"
+#include "openvq/hybrid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -598,6 +599,18 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
           0.35 * Clamp(count / 3.0, 0.0, 1.0),
       0.0,
       1.0);
+
+  if (options.enable_frozen_phase3_hybrid &&
+      options.visqol_speech_mos.has_value() &&
+      options.visqol_audio_mos.has_value()) {
+    HybridExpertScores experts{
+        Clamp(*options.visqol_speech_mos, 1.0, 5.0),
+        Clamp(*options.visqol_audio_mos, 1.0, 5.0)};
+    out.visqol_speech_mos = experts.visqol_speech_mos;
+    out.visqol_audio_mos = experts.visqol_audio_mos;
+    out.mos = EvaluateFrozenPhase3(BuildHybridFeatures(out, experts));
+    out.hybrid_applied = true;
+  }
   return out;
 }
 
@@ -612,7 +625,13 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
     o << base.substr(comma, base.size() - comma - 1);
   }
   o << ",\"base_mos\":" << r.base.mos
-    << ",\"advanced\":{\"erb_similarity\":" << r.advanced.erb_similarity
+    << ",\"hybrid_applied\":" << (r.hybrid_applied ? "true" : "false");
+  if (r.hybrid_applied) {
+    o << ",\"hybrid_model\":\"" << kFrozenPhase3ModelId << "\""
+      << ",\"visqol_speech_mos\":" << *r.visqol_speech_mos
+      << ",\"visqol_audio_mos\":" << *r.visqol_audio_mos;
+  }
+  o << ",\"advanced\":{\"erb_similarity\":" << r.advanced.erb_similarity
     << ",\"multi_resolution_similarity\":"
     << r.advanced.multi_resolution_similarity
     << ",\"temporal_envelope_similarity\":"
