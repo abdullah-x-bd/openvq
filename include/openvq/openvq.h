@@ -85,7 +85,14 @@ struct AnalysisOptions {
   int max_delay_ms = 1500;
   double vad_relative_db = -36.0;
   bool enable_local_alignment = true;
+  // Legacy single-expert hook retained for backwards compatibility.
   std::optional<double> visqol_mos;
+
+  // Frozen Phase-3 hybrid inputs. The candidate is applied only when both
+  // Google ViSQOL v3.3.3 expert scores are present for the same audio pair.
+  std::optional<double> visqol_speech_mos;
+  std::optional<double> visqol_audio_mos;
+  bool enable_frozen_phase3_hybrid = true;
   Calibration calibration;
 };
 

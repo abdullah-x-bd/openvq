@@ -26,6 +26,9 @@ struct AdvancedAnalysisResult {
   AdvancedDiagnostics advanced;
   double mos = 1.0;
   double confidence = 0.0;
+  bool hybrid_applied = false;
+  std::optional<double> visqol_speech_mos;
+  std::optional<double> visqol_audio_mos;
 };
 
 class AdvancedAnalyzer {

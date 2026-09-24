@@ -1,0 +1,138 @@
+name: validation-visqol-hybrid
+on:
+  pull_request:
+    paths:
+      - "validation/visqol_*.py"
+      - "validation/hybrid_*.py"
+      - "src/**"
+      - "include/**"
+      - ".github/workflows/validation-visqol-baseline.yml"
+  workflow_dispatch:
+jobs:
+  hybrid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl libsndfile1-dev libarmadillo-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub openpyxl remotezip requests
+      - name: Build OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Build Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
+          cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - patched to system headers for reproducible historical build
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
+      - name: Fetch TCD and prepare split
+        run: |
+          mkdir -p validation/phase3/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip --local-dir validation/phase3/tcd
+          unzip -q validation/phase3/tcd/TCD-VOIP.zip -d validation/phase3/tcd/extracted
+          python validation/tcd_prepare.py validation/phase3/tcd/extracted validation/phase3/tcd/manifests
+      - name: Fetch untouched NISQA P501
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          u="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          o=Path("validation/phase3/nisqa"); o.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(u) as z:
+              for n in [x for x in z.namelist() if "NISQA_TEST_P501/" in x and not x.endswith("/")]:
+                  z.extract(n,path=o)
+          PY
+          python validation/nisqa_p501_prepare.py validation/phase3/nisqa validation/phase3/nisqa-p501.csv
+      - name: Score ViSQOL experts on TCD train/dev/test
+        run: |
+          for split in train dev test; do
+            python validation/visqol_batch.py \
+              validation/phase3/tcd/manifests/$split.csv \
+              validation/phase3/tcd-$split-visqol.csv \
+              --binary /tmp/visqol/bazel-bin/visqol
+          done
+      - name: Score ViSQOL experts on NISQA holdout
+        run: |
+          python validation/visqol_batch.py \
+            validation/phase3/nisqa-p501.csv validation/phase3/nisqa-visqol.csv \
+            --binary /tmp/visqol/bazel-bin/visqol
+          python validation/visqol_report.py validation/phase3/nisqa-visqol.csv \
+            --out validation/phase3/nisqa-visqol-report.json
+      - name: Build hybrid feature tables
+        run: |
+          for split in train dev test; do
+            python validation/hybrid_features.py \
+              validation/phase3/tcd-$split-visqol.csv \
+              validation/phase3/tcd-$split-features.csv \
+              --cli ./build/openvq_cli --jobs 4
+          done
+          python validation/hybrid_features.py \
+            validation/phase3/nisqa-visqol.csv validation/phase3/nisqa-features.csv \
+            --cli ./build/openvq_cli --jobs 4
+      - name: Fit nonlinear monotonic mapper on TCD only
+        run: |
+          python validation/hybrid_calibrate.py \
+            validation/phase3/tcd-train-features.csv \
+            --dev validation/phase3/tcd-dev-features.csv \
+            --out validation/phase3/openvq-hybrid.json
+      - name: Evaluate TCD test sanity split
+        run: |
+          python validation/hybrid_predict.py \
+            validation/phase3/tcd-test-features.csv validation/phase3/openvq-hybrid.json \
+            validation/phase3/tcd-test-hybrid.csv
+          python validation/hybrid_report.py validation/phase3/tcd-test-hybrid.csv \
+            --out validation/phase3/tcd-test-hybrid-report.json
+      - name: Evaluate untouched NISQA P501
+        run: |
+          python validation/hybrid_predict.py \
+            validation/phase3/nisqa-features.csv validation/phase3/openvq-hybrid.json \
+            validation/phase3/nisqa-hybrid.csv
+          python validation/hybrid_report.py validation/phase3/nisqa-hybrid.csv \
+            --out validation/phase3/nisqa-hybrid-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase3-hybrid
+          path: |
+            validation/phase3/*report.json
+            validation/phase3/openvq-hybrid.json
+            validation/phase3/*hybrid.csv
+            validation/phase3/*visqol.csv

@@ -6,7 +6,9 @@
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::cerr << "usage: openvq_cli reference.wav degraded.wav [--visqol-score N] [--calibration FILE]\n";
+    std::cerr << "usage: openvq_cli reference.wav degraded.wav "
+                 "[--visqol-score N] [--visqol-speech-score N] "
+                 "[--visqol-audio-score N] [--calibration FILE]\n";
     return 2;
   }
   try {
@@ -15,6 +17,10 @@ int main(int argc, char** argv) {
       const std::string arg = argv[i];
       if (arg == "--visqol-score" && i + 1 < argc) {
         options.visqol_mos = std::atof(argv[++i]);
+      } else if (arg == "--visqol-speech-score" && i + 1 < argc) {
+        options.visqol_speech_mos = std::atof(argv[++i]);
+      } else if (arg == "--visqol-audio-score" && i + 1 < argc) {
+        options.visqol_audio_mos = std::atof(argv[++i]);
       } else if (arg == "--calibration" && i + 1 < argc) {
         options.calibration = openvq::LoadCalibration(argv[++i]);
       } else {
