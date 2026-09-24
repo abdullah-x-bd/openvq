@@ -29,7 +29,16 @@ Calibration LoadCalibration(const std::string& path) {
     else if (key == "loudness_weight") c.loudness_weight = value;
     else if (key == "clipping_weight") c.clipping_weight = value;
     else if (key == "bad_section_weight") c.bad_section_weight = value;
-    else if (key == "visqol_penalty_weight" || key == "visqol_weight") c.visqol_weight = value;
+    else if (key == "visqol_penalty_weight" || key == "visqol_weight") c.visqol_penalty_weight = value;
+    else if (key == "final_bias") c.final_bias = value;
+    else if (key == "base_penalty_weight") c.base_penalty_weight = value;
+    else if (key == "advanced_multi_resolution_weight") c.advanced_multi_resolution_weight = value;
+    else if (key == "advanced_temporal_weight") c.advanced_temporal_weight = value;
+    else if (key == "advanced_modulation_weight") c.advanced_modulation_weight = value;
+    else if (key == "advanced_asymmetry_weight") c.advanced_asymmetry_weight = value;
+    else if (key == "advanced_tilt_weight") c.advanced_tilt_weight = value;
+    else if (key == "advanced_level_weight") c.advanced_level_weight = value;
+    else if (key == "advanced_bad_interval_weight") c.advanced_bad_interval_weight = value;
   }
   return c;
 }
