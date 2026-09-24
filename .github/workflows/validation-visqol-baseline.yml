@@ -35,6 +35,7 @@ jobs:
           mkdir -p /tmp/armadillo_repo/include
           cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
           cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
           cat > /tmp/armadillo_repo/BUILD <<'EOF'
           cc_library(
               name = "armadillo_header",
