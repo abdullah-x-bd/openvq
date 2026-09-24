@@ -13,6 +13,12 @@ struct AdvancedDiagnostics {
   double spectral_tilt_error = 0.0;
   double active_level_delta_db = 0.0;
   double bad_interval_severity = 0.0;
+  // Correlated delayed residual after subtracting the direct path.
+  double echo_score = 0.0;
+  // Short gain-normalized speech holes and abrupt local envelope changes.
+  double choppiness_score = 0.0;
+  // Residual energy not explained by the direct path or detected echo.
+  double residual_intrusion = 0.0;
 };
 
 struct AdvancedAnalysisResult {
