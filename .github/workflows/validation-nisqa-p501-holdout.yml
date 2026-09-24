@@ -1,0 +1,89 @@
+name: validation-nisqa-p501-holdout
+on:
+  pull_request:
+    paths:
+      - "validation/nisqa_p501_*.py"
+      - "python/calibrate*.py"
+      - "python/build_training_table.py"
+      - "src/**"
+      - "include/**"
+      - ".github/workflows/validation-nisqa-p501-holdout.yml"
+  workflow_dispatch:
+jobs:
+  holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dataset tools
+        run: python -m pip install --disable-pip-version-check huggingface_hub openpyxl remotezip requests
+      - name: Build frozen candidate
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Download TCD development corpus
+        run: |
+          mkdir -p validation/phase2/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip \
+            --local-dir validation/phase2/tcd
+          unzip -q validation/phase2/tcd/TCD-VOIP.zip -d validation/phase2/tcd/extracted
+      - name: Fit phase-2 calibration using TCD only
+        run: |
+          python validation/tcd_prepare.py \
+            validation/phase2/tcd/extracted validation/phase2/tcd/manifests
+          python python/build_training_table.py \
+            validation/phase2/tcd/manifests/all.csv validation/phase2/tcd/base-features.csv
+          python python/calibrate.py \
+            validation/phase2/tcd/base-features.csv \
+            --out validation/phase2/openvq-phase2-base.calibration
+          python python/build_training_table.py \
+            validation/phase2/tcd/manifests/all.csv validation/phase2/tcd/advanced-features.csv \
+            --calibration validation/phase2/openvq-phase2-base.calibration
+          python python/calibrate_advanced.py \
+            validation/phase2/tcd/advanced-features.csv \
+            --base-calibration validation/phase2/openvq-phase2-base.calibration \
+            --out validation/phase2/openvq-phase2-frozen.calibration
+          sha256sum validation/phase2/openvq-phase2-frozen.calibration \
+            | tee validation/phase2/calibration.sha256
+      - name: Extract untouched NISQA TEST P501 only
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          out=Path("validation/phase2/nisqa")
+          out.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(url) as z:
+              matches=[n for n in z.namelist()
+                       if "NISQA_TEST_P501/" in n and not n.endswith("/")]
+              print("extracting",len(matches),"files")
+              for name in matches:z.extract(name,path=out)
+          PY
+      - name: Prepare NISQA holdout manifest
+        run: |
+          python validation/nisqa_p501_prepare.py \
+            validation/phase2/nisqa validation/phase2/nisqa-p501.csv
+      - name: Score frozen candidate on NISQA holdout
+        run: |
+          python validation/tcd_score.py \
+            validation/phase2/nisqa-p501.csv validation/phase2/nisqa-p501-predictions.csv \
+            --calibration validation/phase2/openvq-phase2-frozen.calibration
+      - name: Report untouched holdout metrics
+        run: |
+          python validation/nisqa_p501_report.py \
+            validation/phase2/nisqa-p501-predictions.csv \
+            --out validation/phase2/nisqa-p501-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase2-nisqa-p501
+          path: |
+            validation/phase2/openvq-phase2-frozen.calibration
+            validation/phase2/calibration.sha256
+            validation/phase2/nisqa-p501.csv
+            validation/phase2/nisqa-p501-predictions.csv
+            validation/phase2/nisqa-p501-report.json
