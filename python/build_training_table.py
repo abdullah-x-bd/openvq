@@ -34,6 +34,11 @@ def main():
         "advanced_tilt",
         "advanced_level",
         "advanced_bad_interval",
+        "advanced_echo",
+        "advanced_residual",
+        "advanced_temporal_edit",
+        "advanced_clip_plateau",
+        "advanced_inactive_noise",
         "visqol_mos", "polqa_mos", "reference", "degraded"
     ]
 
@@ -79,6 +84,16 @@ def main():
                     float(advanced["active_level_delta_db"]) / 18.0),
                 "advanced_bad_interval": clamp(
                     float(advanced["bad_interval_severity"])),
+                "advanced_echo": clamp(
+                    float(advanced.get("echo_likelihood", 0.0))),
+                "advanced_residual": clamp(
+                    float(advanced.get("residual_energy", 0.0))),
+                "advanced_temporal_edit": clamp(
+                    float(advanced.get("temporal_edit", 0.0))),
+                "advanced_clip_plateau": clamp(
+                    float(advanced.get("clipping_plateau", 0.0))),
+                "advanced_inactive_noise": clamp(
+                    float(advanced.get("inactive_noise", 0.0))),
                 "visqol_mos": row.get("visqol_mos", ""),
                 "polqa_mos": row.get("polqa_mos", ""),
                 "reference": row["reference"],
