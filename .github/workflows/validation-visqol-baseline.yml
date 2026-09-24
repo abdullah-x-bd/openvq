@@ -60,7 +60,9 @@ jobs:
           '''
           p.write_text(s[:a]+replacement+s[b:])
           PY
-          bazel build :visqol -c opt --cxxopt=-include --cxxopt=cstdint
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
       - name: Fetch TCD and prepare split
         run: |
           mkdir -p validation/phase3/tcd
