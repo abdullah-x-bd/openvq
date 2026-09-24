@@ -73,6 +73,11 @@ struct Calibration {
   double advanced_tilt_weight = 0.1344;
   double advanced_level_weight = 0.1680;
   double advanced_bad_interval_weight = 0.2352;
+  double advanced_echo_weight = 0.0;
+  double advanced_residual_weight = 0.0;
+  double advanced_temporal_edit_weight = 0.0;
+  double advanced_clip_plateau_weight = 0.0;
+  double advanced_inactive_noise_weight = 0.0;
 };
 
 struct AnalysisOptions {
