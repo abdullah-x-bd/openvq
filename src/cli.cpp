@@ -1,4 +1,4 @@
-#include "openvq/openvq.h"
+#include "openvq/advanced.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -21,8 +21,11 @@ int main(int argc, char** argv) {
         throw std::invalid_argument("unknown or incomplete option: " + arg);
       }
     }
-    openvq::Analyzer analyzer;
-    auto result = analyzer.Analyze(openvq::LoadWav(argv[1]), openvq::LoadWav(argv[2]), options);
+    openvq::AdvancedAnalyzer analyzer;
+    auto result = analyzer.Analyze(
+        openvq::LoadWav(argv[1]),
+        openvq::LoadWav(argv[2]),
+        options);
     std::cout << openvq::ToJson(result) << "\n";
   } catch (const std::exception& e) {
     std::cerr << "openvq: " << e.what() << "\n";
