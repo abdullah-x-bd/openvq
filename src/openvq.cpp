@@ -479,13 +479,13 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   penalty += c.loudness_weight * (5.0 - out.dimensions.loudness) / 4.0;
   penalty += c.clipping_weight * clip_pen;
   penalty += c.bad_section_weight * out.bad_section_fraction;
-  double open_mos = Clamp(5.0 - penalty, 1.0, 5.0);
-
   if (options.visqol_mos.has_value()) {
-    const double w = Clamp(c.visqol_weight, 0.0, 0.75);
-    open_mos = (1.0 - w) * open_mos + w * Clamp(*options.visqol_mos, 1.0, 5.0);
+    const double visqol_penalty =
+        Clamp((5.0 - *options.visqol_mos) / 4.0, 0.0, 1.0);
+    penalty +=
+        std::max(0.0, c.visqol_penalty_weight) * visqol_penalty;
   }
-  out.mos = Clamp(open_mos, 1.0, 5.0);
+  out.mos = Clamp(5.0 - penalty, 1.0, 5.0);
 
   const double active_factor = Clamp(out.active_speech_seconds / 3.0, 0.0, 1.0);
   const double align_factor = Clamp(mean(similarities), 0.0, 1.0);
