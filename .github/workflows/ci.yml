@@ -14,4 +14,4 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Python syntax
-        run: python3 -m py_compile python/calibrate.py python/benchmark.py tools/generate_degradations.py tools/visqol_score.py
+        run: python3 -m py_compile python/calibrate.py python/benchmark.py python/build_training_table.py tools/generate_degradations.py tools/visqol_score.py
