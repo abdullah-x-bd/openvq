@@ -1,32 +1,67 @@
 # OpenVQ
 
-OpenVQ is an open, full-reference speech-quality engine for telecom and drive-test applications.
+OpenVQ is a source-available, full-reference speech-quality engine for telecom and drive-test applications. It is designed as an independently derived perceptual quality system with an optional ViSQOL expert input, mobile-network-oriented diagnostics, a native C++ core, and Android bindings.
 
-It is designed to provide a reproducible alternative quality pipeline built around open algorithms, with optional ViSQOL integration for benchmarking and feature fusion. OpenVQ does **not** claim to implement or reproduce ITU-T P.863/POLQA. Its scores must be validated against human listening tests before any equivalence claim is made.
+OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equivalence or superiority must be established through independent listening-test validation.
 
-## Goals
+## Implemented now
 
-- 48 kHz fullband processing
-- NB, WB, SWB and FB bandwidth detection
-- global and local delay alignment
-- sample-clock drift estimation
-- dropout-aware piecewise alignment
-- perceptual spectral and temporal disturbance features
-- coloration, noisiness, discontinuity and loudness dimensions
-- clipping and dropout event detection
-- optional ViSQOL score ingestion
-- monotonic MOS mapping
-- per-window quality traces
-- native C++ core
-- Android JNI/Kotlin API
-- CLI tooling
-- Python calibration and dataset tooling
-- deterministic unit tests and CI
+- 48 kHz internal fullband pipeline
+- windowed-sinc sample-rate conversion
+- mono WAV ingestion for PCM16 and float32 inputs
+- NB, WB, SWB and FB spectral bandwidth classification
+- global delay estimation
+- multi-region sample-clock-drift estimation
+- dropout-aware local frame alignment
+- reference voice-activity detection
+- FFT and logarithmic perceptual-band analysis
+- missing and added spectral disturbance measures
+- coloration analysis
+- noisiness estimate
+- discontinuity analysis and dropout event extraction
+- loudness mismatch analysis
+- clipping detection
+- bad-section weighting
+- monotonic MOS aggregation
+- confidence estimate
+- optional ViSQOL score fusion
+- JSON CLI output
+- per-frame quality trace in the C++ API
+- pure-Python degradation generator
+- monotonic human-MOS calibration tool
+- Android JNI and Kotlin API
+- native regression tests and GitHub Actions CI
 
-## Status
+## Native build
 
-Initial engineering implementation is under active development.
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --parallel
+    ctest --test-dir build --output-on-failure
 
-## License
+Analyze two WAV files:
 
-Apache License 2.0.
+    ./build/openvq_cli reference.wav degraded.wav
+
+Optionally provide an independently computed ViSQOL MOS:
+
+    ./build/openvq_cli reference.wav degraded.wav --visqol-score 4.21
+
+## ViSQOL
+
+Google ViSQOL is not vendored. tools/visqol_score.py uses a separately installed upstream ViSQOL package in 48 kHz audio mode and produces a score that OpenVQ can fuse as one expert input. Keeping it separate makes licensing and upgrades explicit.
+
+## Android
+
+The android/openvq-android library exposes:
+
+    val json = OpenVqNative.analyzePcm16(reference, degraded, 48000)
+
+The native library resamples other input rates internally.
+
+## Validation
+
+The checked-in score mapping is an engineering bootstrap model. Production MOS accuracy must be calibrated against human listening-test labels. See docs/VALIDATION.md and python/calibrate.py.
+
+## Licensing
+
+OpenVQ is source-available under PolyForm Noncommercial 1.0.0. Commercial use requires a separate written commercial license from the licensor. See LICENSE and COMMERCIAL-LICENSE.md.

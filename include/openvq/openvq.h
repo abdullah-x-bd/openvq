@@ -1,0 +1,104 @@
+#pragma once
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace openvq {
+
+enum class BandwidthClass {
+  kNarrowband,
+  kWideband,
+  kSuperWideband,
+  kFullband,
+  kUnknown,
+};
+
+enum class EventType {
+  kDropout,
+  kClipping,
+  kNoiseBurst,
+  kTimeWarp,
+};
+
+struct AudioBuffer {
+  int sample_rate = 0;
+  std::vector<float> samples;
+};
+
+struct QualityDimensions {
+  double coloration = 1.0;
+  double noisiness = 1.0;
+  double discontinuity = 1.0;
+  double loudness = 1.0;
+};
+
+struct QualityEvent {
+  EventType type = EventType::kDropout;
+  double start_ms = 0.0;
+  double duration_ms = 0.0;
+  double severity = 0.0;
+};
+
+struct FrameQuality {
+  double start_ms = 0.0;
+  double similarity = 0.0;
+  double missing_disturbance = 0.0;
+  double added_disturbance = 0.0;
+  double discontinuity = 0.0;
+};
+
+struct Calibration {
+  double bias = 0.02;
+  double missing_weight = 1.05;
+  double added_weight = 0.68;
+  double coloration_weight = 0.45;
+  double noisiness_weight = 0.55;
+  double discontinuity_weight = 0.95;
+  double loudness_weight = 0.35;
+  double clipping_weight = 0.65;
+  double bad_section_weight = 0.80;
+  double visqol_weight = 0.25;
+};
+
+struct AnalysisOptions {
+  int target_sample_rate = 48000;
+  int frame_ms = 20;
+  int hop_ms = 10;
+  int max_delay_ms = 1500;
+  double vad_relative_db = -36.0;
+  bool enable_local_alignment = true;
+  std::optional<double> visqol_mos;
+  Calibration calibration;
+};
+
+struct AnalysisResult {
+  double mos = 1.0;
+  double confidence = 0.0;
+  BandwidthClass bandwidth = BandwidthClass::kUnknown;
+  double delay_ms = 0.0;
+  double clock_drift_ppm = 0.0;
+  double active_speech_seconds = 0.0;
+  double clipping_ratio = 0.0;
+  double missing_disturbance = 0.0;
+  double added_disturbance = 0.0;
+  double bad_section_fraction = 0.0;
+  QualityDimensions dimensions;
+  std::vector<QualityEvent> events;
+  std::vector<FrameQuality> frames;
+};
+
+class Analyzer {
+ public:
+  AnalysisResult Analyze(const AudioBuffer& reference,
+                         const AudioBuffer& degraded,
+                         const AnalysisOptions& options = {}) const;
+};
+
+AudioBuffer LoadWav(const std::string& path);
+std::string ToString(BandwidthClass bandwidth);
+std::string ToString(EventType type);
+std::string ToJson(const AnalysisResult& result);
+
+}  // namespace openvq
