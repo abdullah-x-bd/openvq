@@ -259,6 +259,255 @@ double ModulationSimilarity(
   return Cosine(ma, mb);
 }
 
+
+struct TelecomDiagnostics {
+  double echo = 0.0;
+  double residual = 0.0;
+  double temporal_edit = 0.0;
+  double clipping_plateau = 0.0;
+  double inactive_noise = 0.0;
+};
+
+double VectorRms(const std::vector<double>& x) {
+  if (x.empty()) return 0.0;
+  double s = 0.0;
+  for (double v : x) s += v * v;
+  return std::sqrt(s / x.size());
+}
+
+double Median(std::vector<double> x) {
+  if (x.empty()) return 0.0;
+  const size_t m = x.size() / 2;
+  std::nth_element(x.begin(), x.begin() + m, x.end());
+  double v = x[m];
+  if (x.size() % 2 == 0) {
+    std::nth_element(x.begin(), x.begin() + m - 1, x.end());
+    v = 0.5 * (v + x[m - 1]);
+  }
+  return v;
+}
+
+double CorrAtShift(const std::vector<double>& a,
+                   const std::vector<double>& b,
+                   int shift,
+                   size_t begin,
+                   size_t end) {
+  double aa = 0.0, bb = 0.0, ab = 0.0;
+  size_t n = 0;
+  end = std::min(end, a.size());
+  for (size_t i = begin; i < end; ++i) {
+    const long j = static_cast<long>(i) + shift;
+    if (j < 0 || j >= static_cast<long>(b.size())) continue;
+    const double x = a[i];
+    const double y = b[static_cast<size_t>(j)];
+    aa += x * x;
+    bb += y * y;
+    ab += x * y;
+    ++n;
+  }
+  if (n < 12 || aa < kEps || bb < kEps) return -1.0;
+  return ab / std::sqrt(aa * bb);
+}
+
+TelecomDiagnostics AnalyzeTelecomImpairments(
+    const std::vector<float>& reference,
+    const std::vector<float>& degraded,
+    int sr,
+    long delay) {
+  TelecomDiagnostics out;
+
+  const size_t rb =
+      delay < 0 ? static_cast<size_t>(std::min<long>(-delay, reference.size())) : 0;
+  const size_t db =
+      delay > 0 ? static_cast<size_t>(std::min<long>(delay, degraded.size())) : 0;
+  if (rb >= reference.size() || db >= degraded.size()) return out;
+
+  const size_t n = std::min(reference.size() - rb, degraded.size() - db);
+  if (n < static_cast<size_t>(sr / 2)) return out;
+
+  // Estimate the direct-path gain before studying the unexplained residual.
+  double rr = 0.0, rd = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    const double r = reference[rb + i];
+    const double d = degraded[db + i];
+    rr += r * r;
+    rd += r * d;
+  }
+  const double gain = Clamp(rd / (rr + kEps), 0.05, 8.0);
+
+  std::vector<double> residual(n);
+  double ref_energy = 0.0, residual_energy = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    const double direct = gain * reference[rb + i];
+    const double e = degraded[db + i] - direct;
+    residual[i] = e;
+    ref_energy += direct * direct;
+    residual_energy += e * e;
+  }
+  const double residual_ratio =
+      std::sqrt(residual_energy / (ref_energy + kEps));
+  out.residual = Clamp(
+      residual_ratio / (residual_ratio + 0.18), 0.0, 1.0);
+
+  // Echo is a delayed copy of the reference remaining after direct-path
+  // subtraction. Decimation makes the search inexpensive while keeping
+  // telecom echo delays well resolved.
+  const int decim = std::max(1, sr / 2000);
+  std::vector<double> ref_ds;
+  std::vector<double> res_ds;
+  ref_ds.reserve(n / decim + 1);
+  res_ds.reserve(n / decim + 1);
+  for (size_t i = 0; i < n; i += decim) {
+    ref_ds.push_back(reference[rb + i]);
+    res_ds.push_back(residual[i]);
+  }
+
+  const double fs_ds = static_cast<double>(sr) / decim;
+  const int min_lag = std::max(1, static_cast<int>(0.018 * fs_ds));
+  const int max_lag = std::min(
+      static_cast<int>(0.400 * fs_ds),
+      static_cast<int>(ref_ds.size() / 3));
+  const int lag_step = std::max(1, static_cast<int>(0.002 * fs_ds));
+  double best_echo_corr = 0.0;
+  for (int lag = min_lag; lag <= max_lag; lag += lag_step) {
+    double aa = 0.0, bb = 0.0, ab = 0.0;
+    size_t count = 0;
+    for (size_t i = static_cast<size_t>(lag); i < ref_ds.size(); ++i) {
+      const double x = ref_ds[i - lag];
+      const double y = res_ds[i];
+      aa += x * x;
+      bb += y * y;
+      ab += x * y;
+      ++count;
+    }
+    if (count > 100 && aa > kEps && bb > kEps) {
+      best_echo_corr = std::max(
+          best_echo_corr, std::abs(ab / std::sqrt(aa * bb)));
+    }
+  }
+  const double residual_presence =
+      residual_ratio / (residual_ratio + 0.08);
+  out.echo = Clamp(
+      1.45 * best_echo_corr * residual_presence, 0.0, 1.0);
+
+  // Reference-silent regions expose additive background noise without
+  // confusing it with legitimate speech energy.
+  const size_t block = static_cast<size_t>(std::max(1, sr / 50));  // 20 ms
+  double peak_ref_rms = 0.0;
+  for (size_t i = 0; i + block <= n; i += block) {
+    peak_ref_rms = std::max(
+        peak_ref_rms,
+        Rms(reference, rb + i, rb + i + block));
+  }
+  double inactive_e = 0.0;
+  size_t inactive_n = 0;
+  for (size_t i = 0; i + block <= n; i += block) {
+    const double frame_ref = Rms(reference, rb + i, rb + i + block);
+    if (frame_ref <= peak_ref_rms * 0.08) {
+      for (size_t j = i; j < i + block; ++j) {
+        inactive_e += residual[j] * residual[j];
+        ++inactive_n;
+      }
+    }
+  }
+  if (inactive_n > 0 && peak_ref_rms > 1e-7) {
+    const double inactive_rms = std::sqrt(inactive_e / inactive_n);
+    const double q = inactive_rms / (gain * peak_ref_rms + kEps);
+    out.inactive_noise = Clamp(q / (q + 0.035), 0.0, 1.0);
+  }
+
+  // Detect saturation even when a clipped file has later been normalized.
+  // The relevant signal is excess occupancy very close to the waveform peak.
+  double peak_d = 0.0, peak_r = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    peak_d = std::max(peak_d, std::abs(static_cast<double>(degraded[db + i])));
+    peak_r = std::max(peak_r, std::abs(static_cast<double>(reference[rb + i])));
+  }
+  auto peak_occupancy = [&](const std::vector<float>& x,
+                            size_t begin,
+                            double peak) {
+    if (peak < 1e-6) return 0.0;
+    const double tol = std::max(2.5 / 32768.0, peak * 0.0025);
+    size_t count = 0;
+    for (size_t i = 0; i < n; ++i) {
+      if (std::abs(std::abs(static_cast<double>(x[begin + i])) - peak) <= tol) {
+        ++count;
+      }
+    }
+    return static_cast<double>(count) / n;
+  };
+  const double occ_d = peak_occupancy(degraded, db, peak_d);
+  const double occ_r = peak_occupancy(reference, rb, peak_r);
+  out.clipping_plateau = Clamp((occ_d - occ_r) * 45.0, 0.0, 1.0);
+
+  // Track local envelope delay around an already globally aligned pair.
+  // Insertions, deletions and time edits manifest as local path excursions.
+  const size_t env_block = static_cast<size_t>(std::max(1, sr / 100));  // 10 ms
+  std::vector<double> er, ed;
+  for (size_t i = 0; i + env_block <= n; i += env_block) {
+    er.push_back(Rms(reference, rb + i, rb + i + env_block));
+    ed.push_back(Rms(degraded, db + i, db + i + env_block));
+  }
+  const double max_er =
+      er.empty() ? 0.0 : *std::max_element(er.begin(), er.end());
+  const double max_ed =
+      ed.empty() ? 0.0 : *std::max_element(ed.begin(), ed.end());
+  if (max_er > kEps && max_ed > kEps) {
+    for (double& v : er) v /= max_er;
+    for (double& v : ed) v /= max_ed;
+
+    const size_t window = 40;  // 400 ms
+    const size_t hop = 10;     // 100 ms
+    const int radius = 40;     // +/- 400 ms
+    std::vector<double> shifts;
+    int weak = 0, total = 0;
+    for (size_t begin = 0; begin + window <= er.size(); begin += hop) {
+      double activity = 0.0;
+      for (size_t i = begin; i < begin + window; ++i) activity += er[i];
+      if (activity / window < 0.08) continue;
+
+      double best = -2.0;
+      int best_shift = 0;
+      for (int s = -radius; s <= radius; ++s) {
+        const double corr =
+            CorrAtShift(er, ed, s, begin, begin + window);
+        if (corr > best) {
+          best = corr;
+          best_shift = s;
+        }
+      }
+      shifts.push_back(best_shift);
+      if (best < 0.70) ++weak;
+      ++total;
+    }
+    if (!shifts.empty()) {
+      std::vector<double> abs_shifts;
+      abs_shifts.reserve(shifts.size());
+      for (double s : shifts) abs_shifts.push_back(std::abs(s));
+      const double shift_pen = Clamp(Median(abs_shifts) / 18.0, 0.0, 1.0);
+
+      double variation = 0.0;
+      for (size_t i = 1; i < shifts.size(); ++i) {
+        variation += std::abs(shifts[i] - shifts[i - 1]);
+      }
+      variation = shifts.size() > 1
+                      ? Clamp(variation / ((shifts.size() - 1) * 10.0), 0.0, 1.0)
+                      : 0.0;
+      const double weak_fraction =
+          total ? static_cast<double>(weak) / total : 0.0;
+
+      out.temporal_edit = Clamp(
+          0.50 * shift_pen +
+          0.32 * variation +
+          0.18 * weak_fraction,
+          0.0,
+          1.0);
+    }
+  }
+
+  return out;
+}
+
 }  // namespace
 
 AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
@@ -320,6 +569,14 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   out.advanced.active_level_delta_db =
       std::abs(20 * std::log10((dr + 1e-9) / (rr + 1e-9)));
 
+  const TelecomDiagnostics telecom =
+      AnalyzeTelecomImpairments(r, d, sr, delay);
+  out.advanced.echo_likelihood = telecom.echo;
+  out.advanced.residual_energy = telecom.residual;
+  out.advanced.temporal_edit = telecom.temporal_edit;
+  out.advanced.clipping_plateau = telecom.clipping_plateau;
+  out.advanced.inactive_noise = telecom.inactive_noise;
+
   const auto& c = options.calibration;
   const double base_penalty = Clamp(5.0 - out.base.mos, 0.0, 4.0);
   const double level_penalty =
@@ -348,6 +605,21 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   final_penalty +=
       std::max(0.0, c.advanced_bad_interval_weight) *
       out.advanced.bad_interval_severity;
+  final_penalty +=
+      std::max(0.0, c.advanced_echo_weight) *
+      out.advanced.echo_likelihood;
+  final_penalty +=
+      std::max(0.0, c.advanced_residual_weight) *
+      out.advanced.residual_energy;
+  final_penalty +=
+      std::max(0.0, c.advanced_temporal_edit_weight) *
+      out.advanced.temporal_edit;
+  final_penalty +=
+      std::max(0.0, c.advanced_clip_plateau_weight) *
+      out.advanced.clipping_plateau;
+  final_penalty +=
+      std::max(0.0, c.advanced_inactive_noise_weight) *
+      out.advanced.inactive_noise;
 
   out.mos = Clamp(5.0 - final_penalty, 1.0, 5.0);
   out.confidence = Clamp(
@@ -381,7 +653,12 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
     << ",\"active_level_delta_db\":"
     << r.advanced.active_level_delta_db
     << ",\"bad_interval_severity\":"
-    << r.advanced.bad_interval_severity << "}}";
+    << r.advanced.bad_interval_severity
+    << ",\"echo_likelihood\":" << r.advanced.echo_likelihood
+    << ",\"residual_energy\":" << r.advanced.residual_energy
+    << ",\"temporal_edit\":" << r.advanced.temporal_edit
+    << ",\"clipping_plateau\":" << r.advanced.clipping_plateau
+    << ",\"inactive_noise\":" << r.advanced.inactive_noise << "}}";
   return o.str();
 }
 
