@@ -59,6 +59,7 @@ def dataset_rows(tcd_paths,nisqa_path,openace_path):
               "dataset":"tcd",
               "group":"tcd:"+r.get("family","")+":"+r["condition_id"],
               "target":(float(r["human_mos"])-1.0)/4.0,
+              "anchor_quality":(float(r["anchor_mos"])-1.0)/4.0,
               "native":[float(r[x]) for x in NATIVE],
               "speech_q":1.0-float(r["visqol_speech"]),
               "audio_q":1.0-float(r["visqol_audio"]),
@@ -68,6 +69,7 @@ def dataset_rows(tcd_paths,nisqa_path,openace_path):
           "dataset":"nisqa",
           "group":"nisqa:"+r["condition_id"],
           "target":(float(r["human_mos"])-1.0)/4.0,
+          "anchor_quality":(float(r["anchor_mos"])-1.0)/4.0,
           "native":[float(r[x]) for x in NATIVE],
           "speech_q":1.0-float(r["visqol_speech"]),
           "audio_q":1.0-float(r["visqol_audio"]),
@@ -79,6 +81,7 @@ def dataset_rows(tcd_paths,nisqa_path,openace_path):
           # not leak into both train and validation folds.
           "group":"openace:"+r["speaker"],
           "target":float(r["human_mushra"])/100.0,
+          "anchor_quality":(float(r["anchor_mos"])-1.0)/4.0,
           "native":[float(r[x]) for x in NATIVE],
           "speech_q":1.0-float(r["visqol_speech"]),
           "audio_q":1.0-float(r["visqol_audio"]),
@@ -118,7 +121,7 @@ def predict_native(model,X):
 LEARNED_NATIVE_BLEND=0.20
 
 def anchored_native(learned, rows):
-    anchor=np.asarray([1.0-float(r["native"][0]) for r in rows],float)
+    anchor=np.asarray([float(r["anchor_quality"]) for r in rows],float)
     return np.clip((1.0-LEARNED_NATIVE_BLEND)*anchor + LEARNED_NATIVE_BLEND*learned,0.0,1.0)
 
 def robust_hybrid(native,speech,audio,blend):
