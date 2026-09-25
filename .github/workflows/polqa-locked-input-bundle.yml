@@ -1,0 +1,92 @@
+name: polqa-locked-input-bundle
+on:
+  push:
+    branches:
+      - validation/polqa-locked-inputs
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dataset tools
+        run: python -m pip install --disable-pip-version-check huggingface_hub openpyxl remotezip
+      - name: Download and prepare locked TCD test set
+        run: |
+          mkdir -p validation/polqa-inputs/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip \
+            --local-dir validation/polqa-inputs/tcd
+          unzip -q validation/polqa-inputs/tcd/TCD-VOIP.zip -d validation/polqa-inputs/tcd/extracted
+          python validation/tcd_prepare.py validation/polqa-inputs/tcd/extracted validation/polqa-inputs/tcd/manifests
+      - name: Download and prepare locked NISQA P501 set
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          u="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          o=Path("validation/polqa-inputs/nisqa"); o.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(u) as z:
+              for n in [x for x in z.namelist() if "NISQA_TEST_P501/" in x and not x.endswith("/")]:
+                  z.extract(n,path=o)
+          PY
+          python validation/nisqa_p501_prepare.py \
+            validation/polqa-inputs/nisqa validation/polqa-inputs/nisqa-p501.csv
+      - name: Materialize exactly 300 locked pairs
+        run: |
+          python - <<'PY'
+          import csv, shutil, json
+          from pathlib import Path
+          root=Path("validation/polqa-inputs")
+          out=Path("validation/polqa-bundle")
+          out.mkdir(parents=True,exist_ok=True)
+          summary={}
+          for dataset, manifest in [
+              ("tcd", root/"tcd/manifests/test.csv"),
+              ("nisqa", root/"nisqa-p501.csv"),
+          ]:
+              rows=list(csv.DictReader(open(manifest,newline="",encoding="utf-8")))
+              ddir=out/dataset
+              (ddir/"ref").mkdir(parents=True,exist_ok=True)
+              (ddir/"deg").mkdir(parents=True,exist_ok=True)
+              new=[]
+              for i,r in enumerate(rows,1):
+                  ref=Path(r["reference"])
+                  deg=Path(r["degraded"])
+                  rp=ddir/"ref"/f"{i:03d}_{ref.name}"
+                  dp=ddir/"deg"/f"{i:03d}_{deg.name}"
+                  shutil.copy2(ref,rp); shutil.copy2(deg,dp)
+                  q=dict(r)
+                  q["reference"]=str(rp.relative_to(out))
+                  q["degraded"]=str(dp.relative_to(out))
+                  q["row_id"]=f"{dataset}_{i:03d}"
+                  new.append(q)
+              fields=["row_id","reference","degraded","human_mos","condition_id","family","filename"]
+              with open(ddir/"manifest.csv","w",newline="",encoding="utf-8") as f:
+                  w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore")
+                  w.writeheader();w.writerows(new)
+              summary[dataset]={"rows":len(new)}
+          if summary["tcd"]["rows"]!=60 or summary["nisqa"]["rows"]!=240:
+              raise SystemExit(f"unexpected counts: {summary}")
+          (out/"README.txt").write_text(
+              "Frozen OpenVQ/POLQA comparison inputs.\n"
+              "TCD test rows: 60\nNISQA TEST P501 rows: 240\n"
+              "Manifests preserve human MOS and condition identifiers.\n",
+              encoding="utf-8")
+          (out/"summary.json").write_text(json.dumps(summary,indent=2),encoding="utf-8")
+          print(summary)
+          PY
+      - name: Verify bundle counts and hashes
+        run: |
+          find validation/polqa-bundle -type f | sort | sha256sum > validation/polqa-bundle/SHA256SUMS.txt
+          du -sh validation/polqa-bundle
+          wc -l validation/polqa-bundle/tcd/manifest.csv validation/polqa-bundle/nisqa/manifest.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-polqa-locked-inputs
+          path: validation/polqa-bundle/
+          compression-level: 6
