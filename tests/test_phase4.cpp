@@ -39,7 +39,7 @@ int main() {
   assert(std::abs(hybrid.mos - 1.399461838430509) < 1e-10);
   assert(std::abs(hybrid.expert_disagreement - 0.6458211725) < 1e-10);
   assert(std::string(openvq::Phase4ModelId()) ==
-         "phase4-dev-native-poly2-balanced-v1");
+         "phase4-native-poly2-balanced-2026-09-25-v1");
 
   std::cout << "Phase-4 candidate tests passed\n";
 }
