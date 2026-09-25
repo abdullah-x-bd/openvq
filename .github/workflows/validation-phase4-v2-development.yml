@@ -1,4 +1,5 @@
 name: validation-phase4-v2-development
+# Phase 4 v2 development gate is evaluated before any final holdout is read.
 on:
   push:
     branches: ["phase4/robust-fusion"]
