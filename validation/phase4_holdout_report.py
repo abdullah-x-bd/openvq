@@ -39,7 +39,7 @@ def main():
     y=[float(r["human_mos"]) for r in rows];p=[float(r["openvq_mos"]) for r in rows]
     u=metrics(y,p);g=grouped(rows)
     passes=u["pearson"]>=.70 and u["spearman"]>=.70 and u["rmse"]<=.80
-    out={"model_id":"phase4-native-poly2-balanced-2026-09-25-v1",
+    out={"model_id":"phase4-native-poly2-constrained-2026-09-25-v3",
       "family":rows[0].get("family","") if rows else "",
       "utterance":u,"condition":g,
       "criterion":{"pearson_min":.70,"spearman_min":.70,"rmse_max":.80},
