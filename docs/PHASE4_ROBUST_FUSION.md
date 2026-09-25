@@ -2,122 +2,104 @@
 
 ## Objective
 
-Phase 4 is intended to fix the generalization weakness exposed by EARS-EMO-OpenACE without hiding or rewriting the Phase 3 result.
+Phase 4 fixes the generalization failure exposed by EARS-EMO-OpenACE without hiding or rewriting the Phase 3 result.
 
-The design target is not "make OpenACE look good." The target is a fusion rule that remains useful when one external expert becomes unreliable outside its familiar domain.
+The design target is not to make one benchmark look good. The target is a native OpenVQ model that predicts human quality across distinct domains while remaining physically sensible on known telecom degradations.
 
-## Evidence motivating the redesign
+## Why Phase 3 failed
 
-On the available datasets, ViSQOL expert reliability changes materially by domain.
+Frozen Phase 3 gave too much influence to speech-mode ViSQOL. On OpenACE, speech-mode ViSQOL was weak and the combined OpenVQ score collapsed.
 
-For the normalized Phase 3 speech-degradation feature, correlation with human MOS is strongly negative on both NISQA and TCD, meaning higher expert degradation tracks lower human quality well.
-
-OpenACE breaks that pattern. The recomputed speech-mode ViSQOL score correlates only modestly with human MUSHRA, while audio mode is substantially stronger.
-
-A fixed global coefficient therefore creates a single-point domain failure.
-
-## Completed forensic result
-
-The first Phase 4 forensic run extracted the native OpenVQ feature vector for all 144 OpenACE codec samples and reconstructed the frozen Phase 3 penalty.
-
-Key findings:
+The forensic run showed that this was a fusion problem rather than a lack of native information:
 
 - Phase 3 speech-expert contribution represented about 68.5 percent of the variable penalty on OpenACE.
-- Audio-expert contribution represented about 10.5 percent.
-- The Phase 3 native terms were underweighted and were not calibrated for the codec-domain feature geometry.
-- A diagnostic ridge model using only native OpenVQ features, evaluated leave-one-speaker-out on OpenACE, reached Pearson 0.9065 and Spearman 0.8529.
-- The same diagnostic using only the two ViSQOL experts reached Pearson 0.6659 and Spearman 0.6379.
-- Native plus expert features reached Pearson 0.9261 and Spearman 0.8700.
+- Native-only OpenVQ features reached Pearson 0.9065 and Spearman 0.8529 in a leave-one-speaker-out diagnostic model.
+- The two ViSQOL experts alone reached Pearson 0.6659 and Spearman 0.6379.
 
-These ridge numbers are forensic development evidence, not untouched validation. Their significance is architectural: the native OpenVQ analyzer contains strong codec-quality information that the frozen Phase 3 fusion failed to exploit.
+Those values are development evidence, not untouched validation.
 
-This supports a native-first Phase 4 design. ViSQOL does not need to define the OpenVQ score.
-
-## Selected balanced development candidate
+## Selected Phase 4 candidate
 
 Model ID:
 
-`phase4-native-poly2-anchored-2026-09-25-v2`
+`phase4-native-poly2-constrained-2026-09-25-v3`
 
-Training uses 768 development examples in total:
+Development data:
 
-- TCD-VoIP: 384
-- NISQA TEST P501: 240
-- EARS-EMO-OpenACE: 144
+- TCD-VoIP: 384 samples
+- NISQA TEST P501: 240 samples
+- EARS-EMO-OpenACE: 144 samples
 
-The native model uses the 19 OpenVQ-native normalized features plus their degree-two products. The three development domains receive equal total fitting weight. Grouped cross-validation prevents condition or speaker groups from being split naively across folds.
+The native predictor uses 19 normalized OpenVQ-native features plus all degree-two products.
 
-The selected ridge alpha is 3.0. Phase 4 v2 additionally constrains the learned native predictor to 20 percent influence around the engineered native OpenVQ score. This was introduced after the engineering matrix showed that an unconstrained quadratic predictor could reverse obvious severity trends for synthetic noise, bandwidth restriction, and clock drift.
+The three subjective datasets receive equal total fitting weight.
 
-Optional expert fusion is capped at 40 percent. When both ViSQOL experts are available, Phase 4 takes the median of native quality, ViSQOL speech quality, and ViSQOL audio quality, then blends 60 percent native quality with 40 percent of that median consensus. A single failing expert therefore cannot directly dominate the output.
+### Engineering constraints
 
-Grouped development cross-validation:
+The regression is fitted under explicit linear inequality constraints generated from the deterministic engineering matrix.
+
+The fitted model must satisfy:
+
+- identity MOS at least 4.5
+- supported sample-rate identity MOS at least 4.2
+- pure-delay score change no larger than 0.45 MOS
+- non-increasing quality with worsening dropout duration
+- non-increasing quality with more repeated dropouts
+- non-increasing quality with worsening additive noise
+- non-increasing quality with stronger low-pass restriction
+- non-increasing quality with stronger clipping
+- non-increasing quality with attenuation
+- non-increasing quality with clock drift
+- non-increasing quality with time-scale distortion
+- non-increasing quality with the predefined mixed-impairment severity
+
+These constraints are development priors. They do not substitute for subjective validation.
+
+### Model selection
+
+Five-fold grouped cross-validation is used. TCD conditions and OpenACE speakers are kept grouped. The selected ridge regularization is alpha 3.0.
+
+The optional expert layer uses the median of native quality, ViSQOL speech quality and ViSQOL audio quality, with the expert consensus capped at 40 percent of the final score.
+
+Primary external validation remains native-only.
+
+### Grouped development cross-validation
 
 | Dataset | Native Pearson | Native Spearman | Optional-expert Pearson | Optional-expert Spearman |
 | --- | ---: | ---: | ---: | ---: |
-| NISQA P501 | 0.7103 | 0.7116 | 0.7529 | 0.7427 |
-| OpenACE | 0.8315 | 0.8100 | 0.8520 | 0.8245 |
-| Full TCD | 0.8029 | 0.7934 | 0.8283 | 0.8178 |
+| NISQA P501 | 0.7099 | 0.7092 | 0.7542 | 0.7453 |
+| OpenACE | 0.8403 | 0.8143 | 0.8584 | 0.8319 |
+| Full TCD | 0.8068 | 0.8057 | 0.8292 | 0.8249 |
 
-These are development cross-validation results, not untouched external validation.
+These are development cross-validation results. They are not untouched external validation.
 
-The important change from Phase 3 is robustness. Phase 4 gives up some of Phase 3's very high TCD-only fit in exchange for substantially more balanced behavior across all three known domains.
+The important improvement over Phase 3 is that the candidate no longer needs a fixed dominant ViSQOL expert and is mathematically prevented from learning several obvious engineering reversals.
 
-## Phase 4 design principles
+## ViSQOL relationship
 
-1. Native OpenVQ evidence is the anchor.
-2. External experts are optional and fallible.
-3. No single expert receives unconditional dominant weight.
-4. Expert influence is reduced when experts disagree with each other or with native evidence.
-5. Expert disagreement itself is exposed as a diagnostic.
-6. Phase 3 remains frozen and reproducible.
-7. OpenACE can be used for diagnosis and development, but not as the final Phase 4 holdout.
-8. Final Phase 4 claims require a new untouched subjective corpus.
+Phase 4 is native-first.
 
-## Development sequence
+The native score requires no ViSQOL input.
 
-### A. Forensic feature extraction
+If both ViSQOL experts are supplied, they provide a bounded secondary consensus correction. A single expert cannot determine the result.
 
-Extract the complete normalized native OpenVQ feature vector for every OpenACE sample while preserving the already computed ViSQOL expert values.
+## External validation rule
 
-Measure:
+OpenACE and NISQA P501 have influenced Phase 4 development and are no longer untouched holdouts.
 
-- individual native-feature association with human judgments
-- expert association with human judgments
-- Phase 3 contribution magnitudes
-- score compression by codec
-- failure modes by emotion
-- expert disagreement
+The next Phase 4 claim must use subjective material not used for fitting, feature selection, model selection, threshold selection or engineering tuning.
 
-### B. Reliability-gated candidate models
-
-Evaluate candidate fusion families such as:
-
-- bounded external-expert corrections around a native anchor
-- agreement-weighted expert corrections
-- expert-consensus penalties
-- disagreement-triggered fallback to native evidence
-- monotonic models with explicit caps on any single expert contribution
-
-Development evaluation must report each existing domain separately. A candidate that fixes OpenACE by materially breaking TCD or NISQA is not acceptable.
-
-### C. Lock Phase 4
-
-After selecting the design:
-
-- assign a new model ID
-- freeze coefficients and code
-- record source commit and artifact hashes
-- freeze the evaluation protocol before the new external holdout is scored
-
-### D. New untouched validation
-
-Use a subjective corpus not used for Phase 4 model selection.
-
-If lawful POLQA values are available for exactly the same audio pairs, run a paired OpenVQ versus POLQA comparison.
+The frozen external protocol is in `validation/PHASE4_EXTERNAL_PROTOCOL.md`.
 
 ## Product implication
 
-Until Phase 4 passes new external validation, the frozen Phase 3 score should not be marketed as a general POLQA replacement.
+Until Phase 4 passes untouched external validation, OpenVQ should not be marketed as generally equivalent to or better than POLQA.
 
-The native diagnostics and experimental OpenVQ score can still be integrated into a drive-test application under an explicit experimental label, but the scientific claim must remain narrower than POLQA parity.
+It can already be integrated experimentally in a drive-test product for:
+
+- native OpenVQ quality scoring
+- diagnostic dimensions
+- side-by-side field collection
+- validation data generation
+
+A broad POLQA-replacement claim requires the external generalization gate and then a lawful paired POLQA comparison.
