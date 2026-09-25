@@ -28,7 +28,7 @@ int main() {
 
   const auto native = openvq::EvaluatePhase4(r);
   assert(!native.experts_applied);
-  assert(std::abs(native.native_mos - 1.399461838430509) < 1e-10);
+  assert(std::abs(native.native_mos - 1.3854653722206223) < 1e-10);
   assert(std::abs(native.mos - native.native_mos) < 1e-12);
 
   const double speech_mos = 5.0 - 4.0 * 0.9013108025000001;
@@ -36,10 +36,10 @@ int main() {
   const auto hybrid =
       openvq::EvaluatePhase4(r, speech_mos, audio_mos);
   assert(hybrid.experts_applied);
-  assert(std::abs(hybrid.mos - 1.399461838430509) < 1e-10);
+  assert(std::abs(hybrid.mos - 1.3891819393323732) < 1e-10);
   assert(std::abs(hybrid.expert_disagreement - 0.6458211725) < 1e-10);
   assert(std::string(openvq::Phase4ModelId()) ==
-         "phase4-native-poly2-balanced-2026-09-25-v1");
+         "phase4-native-poly2-constrained-2026-09-25-v3");
 
   std::cout << "Phase-4 candidate tests passed\n";
 }
