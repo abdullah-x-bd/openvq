@@ -1,0 +1,254 @@
+name: polqa-official-oracle-benchmark
+on:
+  push:
+    branches:
+      - validation/polqa-conformance
+  workflow_dispatch:
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip libsndfile1-dev libarmadillo-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile
+
+      - name: Build frozen OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Build Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
+          cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - patched to system headers
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
+
+      - name: Download official ITU P.863 Edition 3 components
+        run: |
+          mkdir -p /tmp/p863
+          aria2c -x16 -s16 -k1M --max-tries=30 --retry-wait=2 \
+            --file-allocation=none \
+            -d /tmp/p863 -o p863-2018.zip \
+            'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items'
+          sha256sum /tmp/p863/p863-2018.zip | tee /tmp/p863/attachment.sha256
+          unzip -q /tmp/p863/p863-2018.zip -d /tmp/p863/extracted
+
+      - name: Prepare direct official-oracle pairs
+        run: |
+          mkdir -p validation/polqa-oracle
+          python - <<'PY'
+          from pathlib import Path
+          import csv,re,wave,struct,json,os
+
+          root=Path('/tmp/p863/extracted')
+          out=Path('validation/polqa-oracle')
+          wanted={'2a':8000,'5c':48000,'6c':48000}
+
+          raw_files=list(root.rglob('*.raw'))
+          by_base={}
+          for p in raw_files:
+              by_base.setdefault(p.name.lower(),[]).append(p)
+
+          def clean_path(x):
+              return x.strip().strip('"').replace('\\','/').replace('../','').replace('./','')
+
+          def resolve(token):
+              t=clean_path(token)
+              # exact suffix first
+              hits=[p for p in raw_files if str(p).replace('\\','/').lower().endswith(t.lower())]
+              if len(hits)==1:return hits[0]
+              base=Path(t).name.lower()
+              h=by_base.get(base,[])
+              if len(h)==1:return h[0]
+              if h:
+                  # Prefer the expected conformance media directories.
+                  pref=[p for p in h if any(k in str(p).upper() for k in ['VOIP','SWB_TNO_601','SWB_SQ_48K'])]
+                  if len(pref)==1:return pref[0]
+              return None
+
+          def raw_to_wav(src,dst,sr):
+              data=src.read_bytes()
+              if len(data)%2:data=data[:-1]
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              with wave.open(str(dst),'wb') as w:
+                  w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr);w.writeframes(data)
+
+          rows=[]
+          parse_debug=[]
+          for test,sr in wanted.items():
+              candidates=[p for p in root.rglob('*') if p.is_file() and p.name.lower()==f'test_{test}_results_ref.txt']
+              if not candidates:
+                  raise SystemExit(f'missing Test_{test}_results_ref.txt')
+              rp=candidates[0]
+              n=0
+              for line_no,line in enumerate(rp.read_text(errors='ignore').splitlines(),1):
+                  if '.raw' not in line.lower():continue
+                  # Accept paths separated by whitespace, semicolon, comma or tabs.
+                  raw_tokens=re.findall(r'[^\s,;"]+\.raw|"[^"]+\.raw"',line,flags=re.I)
+                  nums=re.findall(r'(?<![A-Za-z0-9_.])[-+]?(?:\d+\.\d+|\d+)(?:[Ee][-+]?\d+)?',line)
+                  if len(raw_tokens)<2 or not nums:
+                      parse_debug.append({'test':test,'line':line_no,'text':line})
+                      continue
+                  ref=resolve(raw_tokens[0]);deg=resolve(raw_tokens[1])
+                  if ref is None or deg is None:
+                      parse_debug.append({'test':test,'line':line_no,'text':line,'ref':str(ref),'deg':str(deg)})
+                      continue
+                  # The reference score is the final numeric field in the official result line.
+                  score=float(nums[-1])
+                  n+=1
+                  rd=out/'audio'/test
+                  rw=rd/f'{n:04d}_ref.wav';dw=rd/f'{n:04d}_deg.wav'
+                  raw_to_wav(ref,rw,sr);raw_to_wav(deg,dw,sr)
+                  rows.append({
+                    'reference':str(rw.resolve()),
+                    'degraded':str(dw.resolve()),
+                    'human_mos':score,
+                    'condition_id':f'{test}_{n:04d}',
+                    'family':f'P863_TEST_{test.upper()}',
+                    'filename':deg.name,
+                    'official_polqa':score,
+                    'test':test,
+                    'sample_rate':sr,
+                    'source_result_file':str(rp.relative_to(root)),
+                  })
+              print(test,'resolved',n)
+
+          expected={'2a':40,'5c':200,'6c':50}
+          counts={t:sum(r['test']==t for r in rows) for t in wanted}
+          if counts!=expected:
+              Path(out/'parse-debug.json').write_text(json.dumps({'counts':counts,'debug':parse_debug},indent=2))
+              raise SystemExit(f'unexpected resolved counts {counts}, expected {expected}')
+
+          fields=list(rows[0].keys())
+          with open(out/'official-oracle.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+          Path(out/'source-summary.json').write_text(json.dumps({
+            'edition':'ITU-T P.863 (03/2018), Edition 3',
+            'tests':counts,
+            'total':len(rows),
+            'note':'Uses direct attached PCM without resampling: mandatory tests 2a, 5c and 6c.'
+          },indent=2))
+          print('TOTAL',len(rows))
+          PY
+
+      - name: Score ViSQOL experts
+        run: |
+          python validation/visqol_batch.py \
+            validation/polqa-oracle/official-oracle.csv \
+            validation/polqa-oracle/oracle-visqol.csv \
+            --binary /tmp/visqol/bazel-bin/visqol
+
+      - name: Score frozen native OpenVQ Phase 3
+        run: |
+          python - <<'PY'
+          import csv,json,subprocess
+          from pathlib import Path
+          src=Path('validation/polqa-oracle/oracle-visqol.csv')
+          rows=list(csv.DictReader(src.open(newline='',encoding='utf-8')))
+          for i,r in enumerate(rows,1):
+              cmd=['./build/openvq_cli',r['reference'],r['degraded'],
+                   '--visqol-speech-score',r['visqol_speech_mos'],
+                   '--visqol-audio-score',r['visqol_audio_mos']]
+              obj=json.loads(subprocess.check_output(cmd,text=True))
+              if not obj.get('hybrid_applied'):
+                  raise SystemExit(f'hybrid not applied on row {i}')
+              r['openvq_mos']=obj['mos']
+              if i%25==0:print('OpenVQ',i,'/',len(rows),flush=True)
+          fields=list(rows[0].keys())
+          with open('validation/polqa-oracle/oracle-scored.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+          PY
+
+      - name: Report agreement with official POLQA oracle
+        run: |
+          python - <<'PY'
+          import csv,json,math
+          from pathlib import Path
+          from collections import defaultdict
+          from scipy.stats import pearsonr,spearmanr
+
+          rows=list(csv.DictReader(open('validation/polqa-oracle/oracle-scored.csv',newline='',encoding='utf-8')))
+
+          def metrics(rr,col):
+              y=[float(r['official_polqa']) for r in rr]
+              p=[float(r[col]) for r in rr]
+              e=[a-b for a,b in zip(p,y)]
+              return {
+                'n':len(rr),
+                'pearson':float(pearsonr(y,p).statistic),
+                'spearman':float(spearmanr(y,p).statistic),
+                'rmse':math.sqrt(sum(x*x for x in e)/len(e)),
+                'mae':sum(abs(x) for x in e)/len(e),
+                'bias':sum(e)/len(e),
+                'within_0_10':sum(abs(x)<=0.10 for x in e)/len(e),
+                'within_0_30':sum(abs(x)<=0.30 for x in e)/len(e),
+                'within_0_50':sum(abs(x)<=0.50 for x in e)/len(e),
+              }
+
+          report={
+            'reference':'Official ITU-T P.863 Edition 3 conformance reference scores',
+            'scope':'Direct attached tests 2a, 5c, 6c only; 290 pairs; no resampled conformance sets',
+            'openvq_phase3':metrics(rows,'openvq_mos'),
+            'visqol_speech':metrics(rows,'visqol_speech_mos'),
+            'visqol_audio':metrics(rows,'visqol_audio_mos'),
+            'by_test':{}
+          }
+          for t in ['2a','5c','6c']:
+              rr=[r for r in rows if r['test']==t]
+              report['by_test'][t]={
+                'openvq_phase3':metrics(rr,'openvq_mos'),
+                'visqol_speech':metrics(rr,'visqol_speech_mos'),
+                'visqol_audio':metrics(rr,'visqol_audio_mos'),
+              }
+          Path('validation/polqa-oracle/oracle-report.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-p863-ed3-official-oracle
+          path: |
+            validation/polqa-oracle/*.json
+            validation/polqa-oracle/*.csv
