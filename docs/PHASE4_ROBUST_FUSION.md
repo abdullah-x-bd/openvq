@@ -37,7 +37,7 @@ This supports a native-first Phase 4 design. ViSQOL does not need to define the 
 
 Model ID:
 
-`phase4-native-poly2-balanced-2026-09-25-v1`
+`phase4-native-poly2-anchored-2026-09-25-v2`
 
 Training uses 768 development examples in total:
 
@@ -47,7 +47,7 @@ Training uses 768 development examples in total:
 
 The native model uses the 19 OpenVQ-native normalized features plus their degree-two products. The three development domains receive equal total fitting weight. Grouped cross-validation prevents condition or speaker groups from being split naively across folds.
 
-The selected ridge alpha is 3.0.
+The selected ridge alpha is 3.0. Phase 4 v2 additionally constrains the learned native predictor to 20 percent influence around the engineered native OpenVQ score. This was introduced after the engineering matrix showed that an unconstrained quadratic predictor could reverse obvious severity trends for synthetic noise, bandwidth restriction, and clock drift.
 
 Optional expert fusion is capped at 40 percent. When both ViSQOL experts are available, Phase 4 takes the median of native quality, ViSQOL speech quality, and ViSQOL audio quality, then blends 60 percent native quality with 40 percent of that median consensus. A single failing expert therefore cannot directly dominate the output.
 
