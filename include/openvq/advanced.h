@@ -27,6 +27,10 @@ struct AdvancedAnalysisResult {
   double mos = 1.0;
   double confidence = 0.0;
   bool hybrid_applied = false;
+  bool phase4_applied = false;
+  bool phase4_experts_applied = false;
+  std::optional<double> phase4_native_mos;
+  std::optional<double> phase4_expert_disagreement;
   std::optional<double> visqol_speech_mos;
   std::optional<double> visqol_audio_mos;
 };
