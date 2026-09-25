@@ -1,0 +1,64 @@
+name: polqa-windows-compile-audit
+on:
+  push:
+    branches:
+      - validation/polqa-source-audit
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Download official P.863 attachment
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\p863 | Out-Null
+          curl.exe -L --retry 20 --retry-delay 2 `
+            "https://www.itu.int/rec/dologin_pub.asp?id=T-REC-P.863-201101-S%21%21SOFT-ZST-E&lang=e&type=items" `
+            -o C:\p863\p863.zip
+          Expand-Archive -LiteralPath C:\p863\p863.zip -DestinationPath C:\p863\x -Force
+      - name: Patch only obvious packaging defects and compile translation units
+        shell: pwsh
+        run: |
+          $root = (Get-ChildItem C:\p863\x -Directory -Recurse | Where-Object { $_.Name -eq "POLQA_svn_ITU_Code_updated" } | Select-Object -First 1).FullName
+          Write-Host "ROOT=$root"
+          @('#pragma once','#include "NewStdString.h"') | Set-Content -Path (Join-Path $root "stdstring.h")
+          Get-ChildItem $root -Recurse -File -Include *.h,*.cpp | ForEach-Object {
+            $s = Get-Content $_.FullName -Raw
+            $s = $s.Replace('#include "Windows.h."', '#include <Windows.h>')
+            Set-Content $_.FullName $s
+          }
+          $incs = Get-ChildItem $root -Directory -Recurse | ForEach-Object { '/I"' + $_.FullName + '"' }
+          $incs += '/I"' + $root + '"'
+          New-Item -ItemType Directory -Force validation\polqa-win-audit | Out-Null
+          New-Item -ItemType Directory -Force C:\p863\obj | Out-Null
+          $results = @()
+          $cpp = Get-ChildItem $root -Recurse -File -Filter *.cpp
+          $i=0
+          foreach($f in $cpp){
+            $i++
+            $obj="C:\p863\obj\$i.obj"
+            $log="C:\p863\obj\$i.log"
+            $args=@('/nologo','/c','/EHsc','/std:c++17','/permissive','/D_AFXDLL','/MD','/W0',('/Fo'+$obj),$f.FullName)+$incs
+            & cl.exe @args *> $log
+            $rc=$LASTEXITCODE
+            $txt=Get-Content $log -Raw
+            $results += [pscustomobject]@{ path=$f.FullName.Substring($root.Length+1); returncode=$rc; output=$txt }
+          }
+          $results | ConvertTo-Json -Depth 4 | Set-Content validation\polqa-win-audit\compile.json
+          $fail=$results | Where-Object {$_.returncode -ne 0}
+          Write-Host "cpp_count=$($results.Count) failed=$($fail.Count)"
+          $fail | Select-Object -First 40 | ForEach-Object {
+            Write-Host ""
+            Write-Host "==== $($_.path) ===="
+            $o=$_.output
+            Write-Host ($o.Substring([Math]::Max(0,$o.Length-3500)))
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polqa-windows-compile-audit
+          path: validation/polqa-win-audit/
