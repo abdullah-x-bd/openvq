@@ -18,10 +18,9 @@ jobs:
       - name: Download official ITU P.863 2018 components
         run: |
           mkdir -p /tmp/p863-2018
-          aria2c -x16 -s16 -k1M --max-tries=20 --retry-wait=2 \
-            --file-allocation=none \
-            -d /tmp/p863-2018 -o p863-2018.zip \
-            'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items'
+          curl -L --fail --retry 30 --retry-delay 2 \
+            'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items' \
+            -o /tmp/p863-2018/p863-2018.zip
           sha256sum /tmp/p863-2018/p863-2018.zip
           unzip -q /tmp/p863-2018/p863-2018.zip -d /tmp/p863-2018/extracted
       - name: Audit conformance tree
