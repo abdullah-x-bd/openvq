@@ -85,8 +85,7 @@ jobs:
           done
           python validation/hybrid_features.py \
             validation/phase4/phase3/nisqa-visqol.csv \
-            validation/phase4/nisqa-features.csv
-            validation/phase4/openace-features.csv \
+            validation/phase4/nisqa-features.csv \
             --cli ./build/openvq_cli --jobs 4
           python validation/phase4_extract_openace.py \
             validation/phase4/openace-source/manifest-visqol.csv \
@@ -111,3 +110,4 @@ jobs:
             validation/phase4/phase4_model.inc
             validation/phase4/tcd-*-features.csv
             validation/phase4/nisqa-features.csv
+            validation/phase4/openace-features.csv
