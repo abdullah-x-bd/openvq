@@ -7,9 +7,9 @@ NISQA TEST_NSC.
 
 Model ID:
 
-`phase4-native-poly2-anchored-2026-09-25-v2`
+`phase4-native-poly2-constrained-2026-09-25-v3`
 
-The candidate is the native-first Phase 4 v2 model embedded in `src/phase4_model.inc`. The learned cross-domain predictor is constrained to a 20 percent correction around the engineered native OpenVQ score. This anchor rule was fixed before TEST_FOR or TEST_NSC scoring.
+The candidate is the native-first constrained Phase 4 model embedded in `src/phase4_model.inc`. Its regression coefficients were selected under a frozen synthetic engineering constraint set before TEST_FOR or TEST_NSC scoring. The constraints cover identity quality, sample-rate identity, delay invariance, and non-increasing quality under worsening telecom impairment severity.
 
 The candidate may not be changed after any TEST_FOR or TEST_NSC OpenVQ score or
 aggregate result is examined. Any later coefficient, feature, normalization,
