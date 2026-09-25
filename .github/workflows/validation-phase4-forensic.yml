@@ -1,0 +1,93 @@
+name: validation-phase4-forensic
+on:
+  push:
+    branches:
+      - "validation/phase4-robust-fusion"
+    paths:
+      - "validation/phase4_*.py"
+      - "docs/**"
+      - "README.md"
+      - ".github/workflows/validation-phase4-forensic.yml"
+  pull_request:
+    paths:
+      - "validation/phase4_*.py"
+      - "docs/**"
+      - "README.md"
+      - ".github/workflows/validation-phase4-forensic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libsndfile1-dev
+          python -m pip install --disable-pip-version-check numpy soundfile huggingface_hub
+
+      - name: Build OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Reuse frozen OpenACE expert artifact
+        run: |
+          mkdir -p validation/phase4/source
+          gh run download 36099432761 \
+            --repo abdullah-x-bd/openvq \
+            --name openvq-openace-polqa \
+            --dir validation/phase4/source
+          test -f validation/phase4/source/manifest-visqol.csv
+          test -f validation/phase4/source/dataset-revision.txt
+
+      - name: Fetch exact OpenACE audio revision
+        run: |
+          mkdir -p validation/openace/data
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+          revision=Path("validation/phase4/source/dataset-revision.txt").read_text().strip()
+          snapshot_download(
+              repo_id="mcernak/EARS-EMO-OpenACE",
+              repo_type="dataset",
+              revision=revision,
+              local_dir="validation/openace/data",
+          )
+          print("OpenACE revision",revision)
+          PY
+
+      - name: Extract native and expert feature table
+        run: |
+          python validation/phase4_extract_openace.py \
+            validation/phase4/source/manifest-visqol.csv \
+            validation/phase4/openace-features.csv \
+            --cli ./build/openvq_cli --jobs 4
+
+      - name: Run Phase 4 forensic analysis
+        run: |
+          python validation/phase4_forensic.py \
+            validation/phase4/openace-features.csv \
+            --out validation/phase4/openace-forensic.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-forensic
+          path: |
+            validation/phase4/openace-features.csv
+            validation/phase4/openace-forensic.json
