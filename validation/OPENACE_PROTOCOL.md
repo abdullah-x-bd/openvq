@@ -41,6 +41,19 @@ For every reference/degraded pair:
 The published OpenACE ViSQOL score remains a separate benchmark column and is
 not substituted for either frozen Phase-3 expert input.
 
+### Input representation clarification, 2026-09-25
+
+The first execution reached OpenVQ scoring only after ViSQOL completed, but the
+native frozen loader rejected the original OpenACE WAV subtype before producing
+any OpenVQ result. The loader accepts PCM16 or IEEE float32 WAV.
+
+For compatibility, each reference and degraded file is therefore decoded with
+libsndfile, averaged to mono using the same channel policy as the native loader,
+and written as PCM16 at its original sample rate before frozen OpenVQ scoring.
+This is an input-container/sample-representation conversion only. No model
+coefficient, feature, ViSQOL value, MOS mapping, sample rate, benchmark row, or
+evaluation criterion was changed after observing the failure.
+
 ## Human target
 
 The subjective target is the published distorted MUSHRA rating on its native
