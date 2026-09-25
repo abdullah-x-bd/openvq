@@ -4,9 +4,8 @@ on:
     branches:
       - "validation/phase4-robust-fusion"
     paths:
-      - "validation/phase4_*.py"
-      - "docs/**"
-      - "README.md"
+      - "validation/phase4_extract_openace.py"
+      - "validation/phase4_forensic.py"
       - ".github/workflows/validation-phase4-forensic.yml"
   pull_request:
     paths:
