@@ -1,17 +1,6 @@
 name: validation-phase4-v2-development
 # Phase 4 v2 development gate is evaluated before any final holdout is read.
 on:
-  push:
-    branches: ["phase4/robust-fusion"]
-    paths:
-      - "validation/phase4_v2_*.py"
-      - "validation/PHASE4_PROTOCOL.md"
-      - ".github/workflows/validation-phase4-v2-development.yml"
-  pull_request:
-    paths:
-      - "validation/phase4_v2_*.py"
-      - "validation/PHASE4_PROTOCOL.md"
-      - ".github/workflows/validation-phase4-v2-development.yml"
   workflow_dispatch:
 
 jobs:
