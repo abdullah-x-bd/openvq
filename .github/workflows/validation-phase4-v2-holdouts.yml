@@ -1,0 +1,161 @@
+name: validation-phase4-v2-fresh-holdouts
+
+on:
+  push:
+    branches: ["phase4/robust-fusion"]
+    paths:
+      - "validation/frozen/phase4-v2-freeze.json"
+      - "validation/nisqa_fullref_prepare.py"
+      - "validation/phase4_holdout_report.py"
+      - "validation/PHASE4_LOCKED_HOLDOUT_PROTOCOL.md"
+      - ".github/workflows/validation-phase4-v2-holdouts.yml"
+  pull_request:
+    paths:
+      - "validation/frozen/phase4-v2-freeze.json"
+      - "validation/nisqa_fullref_prepare.py"
+      - "validation/phase4_holdout_report.py"
+      - "validation/PHASE4_LOCKED_HOLDOUT_PROTOCOL.md"
+      - ".github/workflows/validation-phase4-v2-holdouts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: phase4-v2-holdouts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  holdout:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: FOR
+            folder: NISQA_TEST_FOR
+            family: NISQA_TEST_FOR
+          - key: NSC
+            folder: NISQA_TEST_NSC
+            family: NISQA_TEST_NSC
+    name: phase4-holdout-${{ matrix.key }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl libsndfile1-dev libarmadillo-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile remotezip requests
+
+      - name: Build OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Build Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
+          cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - patched to system headers for reproducible historical build
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
+
+      - name: Fetch untouched NISQA ${{ matrix.key }}
+        env:
+          NISQA_FOLDER: ${{ matrix.folder }}
+          KEY: ${{ matrix.key }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from remotezip import RemoteZip
+          folder=os.environ["NISQA_FOLDER"]
+          out=Path("validation/phase4-holdout")/os.environ["KEY"]/"raw"
+          out.mkdir(parents=True,exist_ok=True)
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          with RemoteZip(url) as z:
+              names=[n for n in z.namelist() if folder + "/" in n and not n.endswith("/")]
+              if not names:
+                  raise SystemExit(f"no files found for {folder}")
+              print("extracting",len(names),"files for",folder)
+              for n in names:z.extract(n,path=out)
+          PY
+
+      - name: Prepare locked 240-pair manifest
+        run: |
+          mkdir -p validation/phase4-holdout/${{ matrix.key }}
+          python validation/nisqa_fullref_prepare.py \
+            validation/phase4-holdout/${{ matrix.key }}/raw \
+            validation/phase4-holdout/${{ matrix.key }}/manifest.csv \
+            --family ${{ matrix.family }} --expected 240
+
+      - name: Score pinned ViSQOL experts
+        run: |
+          python validation/visqol_batch.py \
+            validation/phase4-holdout/${{ matrix.key }}/manifest.csv \
+            validation/phase4-holdout/${{ matrix.key }}/manifest-visqol.csv \
+            --binary /tmp/visqol/bazel-bin/visqol
+
+      - name: Extract native OpenVQ features
+        run: |
+          python validation/hybrid_features.py \
+            validation/phase4-holdout/${{ matrix.key }}/manifest-visqol.csv \
+            validation/phase4-holdout/${{ matrix.key }}/features.csv \
+            --cli ./build/openvq_cli --jobs 4
+
+      - name: Apply frozen Phase 4 v2
+        run: |
+          python validation/phase4_v2_apply.py \
+            validation/phase4-holdout/${{ matrix.key }}/features.csv \
+            validation/frozen/phase4-v2-freeze.json \
+            validation/phase4-holdout/${{ matrix.key }}/scored.csv
+
+      - name: Report locked holdout
+        run: |
+          python validation/phase4_holdout_report.py \
+            validation/phase4-holdout/${{ matrix.key }}/scored.csv \
+            --out validation/phase4-holdout/${{ matrix.key }}/report.json \
+            --bootstrap 10000
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-v2-holdout-${{ matrix.key }}
+          path: |
+            validation/phase4-holdout/${{ matrix.key }}/manifest.csv
+            validation/phase4-holdout/${{ matrix.key }}/manifest-visqol.csv
+            validation/phase4-holdout/${{ matrix.key }}/features.csv
+            validation/phase4-holdout/${{ matrix.key }}/scored.csv
+            validation/phase4-holdout/${{ matrix.key }}/report.json
