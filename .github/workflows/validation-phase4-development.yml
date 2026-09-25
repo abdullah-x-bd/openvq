@@ -1,14 +1,5 @@
 name: validation-phase4-development
 on:
-  push:
-    branches: ["phase4/robust-fusion"]
-  pull_request:
-    paths:
-      - "validation/phase4_*.py"
-      - "validation/openace_phase4_features.py"
-      - "validation/PHASE4_PROTOCOL.md"
-      - "docs/**"
-      - ".github/workflows/validation-phase4-development.yml"
   workflow_dispatch:
 
 jobs:
