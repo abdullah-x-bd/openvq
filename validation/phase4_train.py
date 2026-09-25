@@ -176,7 +176,7 @@ def main():
     y=np.asarray([r["target"] for r in rows],float)
     ds=np.asarray([r["dataset"] for r in rows])
     mu,sd,coef=fit(X,y,ds,selected["alpha"])
-    model_id="phase4-dev-native-poly2-balanced-v1"
+    model_id="phase4-native-poly2-balanced-2026-09-25-v1"
     result={
       "model_id":model_id,
       "status":"development candidate, not external validation",
