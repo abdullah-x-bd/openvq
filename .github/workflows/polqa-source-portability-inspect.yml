@@ -1,0 +1,35 @@
+name: polqa-source-portability-inspect
+on:
+  push:
+    branches:
+      - validation/polqa-source-audit
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download source attachment
+        run: |
+          mkdir -p /tmp/p863
+          curl -L --fail --retry 20 --retry-delay 2 \
+            'https://www.itu.int/rec/dologin_pub.asp?id=T-REC-P.863-201101-S%21%21SOFT-ZST-E&lang=e&type=items' \
+            -o /tmp/p863/p863.zip
+          unzip -q /tmp/p863/p863.zip -d /tmp/p863/x
+      - name: Inspect portability hooks
+        run: |
+          ROOT=$(find /tmp/p863/x -type d -name POLQA_svn_ITU_Code_updated | head -1)
+          echo "ROOT=$ROOT"
+          echo '===== MFC/Windows references ====='
+          grep -RniE 'ReplaceMFC|NoMFC|afxwin|windows\.h|Windows\.h|CString|CArray|CFile|DWORD|BOOL|HANDLE|LPCTSTR|TCHAR|_WIN32|WIN32' "$ROOT" \
+            --include='*.h' --include='*.cpp' | head -600 || true
+          for f in ReplaceMFC.h RefArrayNoMFC.h GraphHolderNoMFC.h StdAfx.h stdafx_POLQACore.h Main.cpp Main.h NewStdString.h StdStringArray.h ExtLibs/AudioIO.h ExtLibs/Commandline.h ExtLibs/mathlib.h PreAlignment/stdafx.h time_align_lib/stdafx.h; do
+            P="$ROOT/$f"
+            if [ -f "$P" ]; then
+              echo
+              echo "===== $f ====="
+              sed -n '1,360p' "$P"
+            fi
+          done
