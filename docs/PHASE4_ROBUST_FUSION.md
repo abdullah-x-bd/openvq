@@ -33,6 +33,36 @@ These ridge numbers are forensic development evidence, not untouched validation.
 
 This supports a native-first Phase 4 design. ViSQOL does not need to define the OpenVQ score.
 
+## Selected balanced development candidate
+
+Model ID:
+
+`phase4-native-poly2-balanced-2026-09-25-v1`
+
+Training uses 768 development examples in total:
+
+- TCD-VoIP: 384
+- NISQA TEST P501: 240
+- EARS-EMO-OpenACE: 144
+
+The native model uses the 19 OpenVQ-native normalized features plus their degree-two products. The three development domains receive equal total fitting weight. Grouped cross-validation prevents condition or speaker groups from being split naively across folds.
+
+The selected ridge alpha is 3.0.
+
+Optional expert fusion is capped at 40 percent. When both ViSQOL experts are available, Phase 4 takes the median of native quality, ViSQOL speech quality, and ViSQOL audio quality, then blends 60 percent native quality with 40 percent of that median consensus. A single failing expert therefore cannot directly dominate the output.
+
+Grouped development cross-validation:
+
+| Dataset | Native Pearson | Native Spearman | Optional-expert Pearson | Optional-expert Spearman |
+| --- | ---: | ---: | ---: | ---: |
+| NISQA P501 | 0.7103 | 0.7116 | 0.7529 | 0.7427 |
+| OpenACE | 0.8315 | 0.8100 | 0.8520 | 0.8245 |
+| Full TCD | 0.8029 | 0.7934 | 0.8283 | 0.8178 |
+
+These are development cross-validation results, not untouched external validation.
+
+The important change from Phase 3 is robustness. Phase 4 gives up some of Phase 3's very high TCD-only fit in exchange for substantially more balanced behavior across all three known domains.
+
 ## Phase 4 design principles
 
 1. Native OpenVQ evidence is the anchor.
