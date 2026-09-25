@@ -1,8 +1,30 @@
 # OpenVQ
 
-OpenVQ is a source-available, full-reference speech-quality engine for telecom and drive-test applications. It is an independently derived perceptual quality system with optional Google ViSQOL input, telecom-oriented diagnostics, a native C++ core, and Android bindings.
+OpenVQ is a source-available, full-reference speech-quality engine for telecom
+and drive-test applications. It combines an independently implemented native
+C++ perceptual engine with optional external expert signals and produces a
+quality score plus telecom-oriented diagnostics.
 
-OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equivalence or superiority must be established through independent listening-test validation.
+**OpenVQ is not POLQA and does not implement ITU-T P.863.**
+
+For a plain-language overview, start with
+[`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md). The architecture is described
+in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the complete validation
+record, including negative results, is in
+[`docs/VALIDATION_HISTORY.md`](docs/VALIDATION_HISTORY.md).
+
+## Is OpenVQ based on ViSQOL?
+
+The native OpenVQ engine is not based on ViSQOL and can run without it. It
+independently computes alignment, spectral and temporal disturbance, missing
+and added energy, coloration, noisiness, discontinuity, loudness, clipping,
+echo, choppiness and other perceptual diagnostics.
+
+Phase 3 and later experimental quality models can also consume separately
+computed Google ViSQOL scores as expert features. ViSQOL is not vendored into
+this repository.
+
+POLQA is never used as an OpenVQ input.
 
 ## Implemented
 
@@ -10,37 +32,22 @@ OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equiv
 - PCM16 and float32 WAV ingestion
 - fullband sample-rate conversion
 - NB, WB, SWB and FB bandwidth classification
-- global delay estimation
-- multi-region clock-drift estimation
-- dropout-aware local alignment
-- reference voice-activity detection
-- FFT perceptual spectral analysis
-- 32-band ERB auditory analysis
-- 20 ms, 80 ms and 200 ms multi-resolution quality analysis
+- global delay and multi-region clock-drift estimation
+- dropout-aware local alignment and reference voice-activity detection
+- FFT and 32-band ERB perceptual analysis
+- 20 ms, 80 ms and 200 ms multi-resolution analysis
 - missing and added disturbance measures
-- asymmetric disturbance weighting
-- coloration analysis
-- noisiness analysis
-- discontinuity and dropout-event analysis
-- loudness mismatch analysis
-- clipping detection
-- temporal-envelope similarity
-- modulation-spectrum similarity
-- spectral-tilt error
-- active-level error
-- worst-interval pooling
-- monotonic MOS aggregation
-- trainable base and advanced fusion weights
-- optional ViSQOL expert penalty
-- confidence estimate
-- JSON CLI output
-- per-frame quality traces
-- deterministic degradation generator
-- human-MOS feature extraction
-- two-stage human-MOS calibration
-- held-out benchmarking against human MOS, ViSQOL, and optional licensed POLQA scores
+- coloration, noisiness, discontinuity and loudness analysis
+- clipping and dropout-event analysis
+- temporal-envelope and modulation-spectrum similarity
+- asymmetric disturbance and spectral-tilt analysis
+- active-level error and worst-interval pooling
+- delayed-copy echo, choppiness and residual-intrusion diagnostics
+- JSON CLI output and per-frame traces
+- human-subjective calibration and validation tooling
+- optional external ViSQOL expert inputs
 - Android JNI and Kotlin API
-- native regression tests and GitHub Actions CI
+- native regression tests and GitHub Actions validation
 
 ## Native build
 
@@ -52,51 +59,44 @@ Analyze two WAV files:
 
     ./build/openvq_cli reference.wav degraded.wav
 
-Use an independently computed ViSQOL score as an optional expert input:
+The native engine works without ViSQOL.
 
-    ./build/openvq_cli reference.wav degraded.wav --visqol-score 4.21
+Experimental hybrid scoring can supply separately computed expert scores:
 
-Use fitted human-MOS calibration:
+    ./build/openvq_cli reference.wav degraded.wav \
+      --visqol-speech-score 4.10 \
+      --visqol-audio-score 4.25
 
-    ./build/openvq_cli reference.wav degraded.wav --calibration openvq-final.calibration
+## Scientific status
 
-## Human-MOS calibration
+The engineering implementation is functional, but the quality model remains
+under active validation.
 
-Start with a training manifest:
+Frozen Phase 3 performed strongly on TCD-VoIP and NISQA TEST P501:
 
-    reference,degraded,human_mos,visqol_mos,polqa_mos
+| Dataset | Pearson | Spearman | RMSE |
+| --- | ---: | ---: | ---: |
+| TCD test | 0.9541 | 0.9375 | 0.4335 |
+| NISQA TEST P501 | 0.8185 | 0.8209 | 0.6011 |
 
-The ViSQOL and POLQA columns are optional. POLQA values are only benchmark data when lawfully available. Human MOS is the target.
+The same frozen model then failed to generalize to EARS-EMO-OpenACE:
 
-Extract the initial feature table:
+| OpenACE comparison | Pearson |
+| --- | ---: |
+| OpenVQ Phase 3 | 0.1607 |
+| published POLQA | 0.7939 |
+| published ViSQOL | 0.7034 |
 
-    python3 python/build_training_table.py train-manifest.csv train-base.csv
+Therefore **OpenVQ currently does not claim POLQA parity**.
 
-Fit the base monotonic degradation model:
+Phase 4 is a multi-domain redesign. TCD, P501 and OpenACE are now development
+data. NISQA TEST FOR and TEST NSC are reserved as fresh holdouts under
+[`validation/PHASE4_PROTOCOL.md`](validation/PHASE4_PROTOCOL.md).
 
-    python3 python/calibrate.py train-base.csv --out openvq-base.calibration
+## Validation reproducibility
 
-Re-extract features using that fitted base model:
-
-    python3 python/build_training_table.py train-manifest.csv train-advanced.csv \
-        --calibration openvq-base.calibration
-
-Fit the final advanced perceptual fusion while retaining the base weights:
-
-    python3 python/calibrate_advanced.py train-advanced.csv \
-        --base-calibration openvq-base.calibration \
-        --out openvq-final.calibration
-
-Evaluate only on a separate held-out manifest:
-
-    python3 python/benchmark.py heldout.csv \
-        --calibration openvq-final.calibration
-
-The benchmark reports RMSE, Pearson correlation, Spearman correlation, and mean bias. If the held-out manifest contains ViSQOL or licensed POLQA scores, the same metrics are reported for those baselines.
-
-## ViSQOL
-
-Google ViSQOL is not vendored into this repository. `tools/visqol_score.py` uses a separately installed upstream ViSQOL package in 48 kHz audio mode. The resulting MOS can be supplied to OpenVQ as one optional expert feature. This keeps the upstream dependency, attribution and upgrades explicit.
+See [`docs/REPRODUCING_VALIDATION.md`](docs/REPRODUCING_VALIDATION.md) for
+workflow run IDs, artifact IDs, dataset revisions and freeze rules.
 
 ## Android
 
@@ -104,12 +104,13 @@ The `android/openvq-android` library exposes:
 
     val json = OpenVqNative.analyzePcm16(reference, degraded, 48000)
 
-The JNI layer uses the same advanced native analyzer as the CLI.
-
-## Scientific status
-
-The software implementation and calibration pipeline are complete engineering components. The checked-in default weights are bootstrap values. A claim that OpenVQ matches or exceeds POLQA requires a sufficiently large independent human listening-test corpus and a locked held-out evaluation set. The repository includes the machinery needed to perform that calibration and comparison.
+The JNI layer uses the same native analyzer as the CLI.
 
 ## Licensing
 
-OpenVQ is source-available under PolyForm Noncommercial 1.0.0. Commercial use requires a separate written commercial license from the licensor. See `LICENSE` and `COMMERCIAL-LICENSE.md`.
+OpenVQ is source-available under PolyForm Noncommercial 1.0.0. Commercial use
+requires a separate written commercial license from the licensor. See
+`LICENSE` and `COMMERCIAL-LICENSE.md`.
+
+Google ViSQOL is a separate upstream dependency with its own license and is not
+vendored into OpenVQ.
