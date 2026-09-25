@@ -20,9 +20,13 @@ def main():
  out={"utterance":met(rows)}
  if rows[0].get("condition_id",""):
   g=defaultdict(list)
-  for r in rows:g[r["condition_id"]].append(r)
+  # TCD condition IDs are only unique within a degradation family.
+  # Preserve family in the grouping key whenever it is available.
+  for r in rows:
+   key=(r.get("family",""),r["condition_id"])
+   g[key].append(r)
   c=[]
-  for cid,z in g.items():c.append({"human_mos":sum(float(x["human_mos"]) for x in z)/len(z),"hybrid_mos":sum(float(x["hybrid_mos"]) for x in z)/len(z)})
+  for key,z in g.items():c.append({"human_mos":sum(float(x["human_mos"]) for x in z)/len(z),"hybrid_mos":sum(float(x["hybrid_mos"]) for x in z)/len(z)})
   out["condition"]=met(c)
  open(a.out,"w").write(json.dumps(out,indent=2));print(json.dumps(out,indent=2))
 if __name__=="__main__":main()
