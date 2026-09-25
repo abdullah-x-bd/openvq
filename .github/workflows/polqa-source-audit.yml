@@ -1,0 +1,103 @@
+name: polqa-source-audit
+on:
+  push:
+    branches:
+      - validation/polqa-source-audit
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip build-essential cmake ninja-build
+      - name: Download official ITU P.863 2011 software attachment
+        run: |
+          mkdir -p /tmp/p863
+          curl -L --fail --retry 12 --retry-delay 3 \
+            'https://www.itu.int/rec/dologin_pub.asp?id=T-REC-P.863-201101-S%21%21SOFT-ZST-E&lang=e&type=items' \
+            -o /tmp/p863/p863-2011.zip
+          sha256sum /tmp/p863/p863-2011.zip | tee /tmp/p863/sha256.txt
+          unzip -q /tmp/p863/p863-2011.zip -d /tmp/p863/src
+      - name: Audit source tree and dependencies
+        run: |
+          mkdir -p validation/polqa-audit
+          {
+            echo '# P.863 2011 source audit'
+            echo
+            echo '## archive'
+            cat /tmp/p863/sha256.txt
+            echo
+            echo '## top-level files'
+            find /tmp/p863/src -maxdepth 3 -type f | sed 's#/tmp/p863/src/##' | sort
+            echo
+            echo '## extensions'
+            find /tmp/p863/src -type f | sed 's/.*\.//' | sort | uniq -c | sort -nr
+            echo
+            echo '## candidate source roots'
+            find /tmp/p863/src -type d | grep -Ei 'POLQA|Code|source|src' | sort
+            echo
+            echo '## includes'
+            grep -RhoE '^#[[:space:]]*include[[:space:]]*[<"][^>"]+[>"]' /tmp/p863/src --include='*.cpp' --include='*.h' --include='*.hpp' | sort -u || true
+            echo
+            echo '## main functions'
+            grep -RniE '(^|[[:space:]])(int|void)[[:space:]]+(main|wmain)[[:space:]]*\(' /tmp/p863/src --include='*.cpp' --include='*.c' || true
+            echo
+            echo '## build files'
+            find /tmp/p863/src -type f \( -iname 'Makefile' -o -iname 'CMakeLists.txt' -o -iname '*.sln' -o -iname '*.vcproj' -o -iname '*.vcxproj' \) -print
+          } > validation/polqa-audit/source-audit.txt
+          cat validation/polqa-audit/source-audit.txt
+      - name: Attempt translation-unit compilation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, json, os, re, shlex
+          root=Path('/tmp/p863/src')
+          cpp=list(root.rglob('*.cpp'))+list(root.rglob('*.cc'))+list(root.rglob('*.cxx'))
+          incdirs=sorted({p.parent for p in root.rglob('*.h')} | {p.parent for p in root.rglob('*.hpp')})
+          report={'cpp_count':len(cpp),'include_dirs':[str(x) for x in incdirs],'files':[]}
+          out=Path('validation/polqa-audit/objects');out.mkdir(parents=True,exist_ok=True)
+          for i,p in enumerate(cpp):
+              cmd=['g++','-std=gnu++17','-fpermissive','-Wno-write-strings','-Wno-deprecated-declarations','-c',str(p),'-o',str(out/f'{i}.o')]
+              for d in incdirs: cmd += ['-I',str(d)]
+              q=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+              report['files'].append({'path':str(p.relative_to(root)),'returncode':q.returncode,'stderr':q.stderr[-12000:]})
+          Path('validation/polqa-audit/compile.json').write_text(json.dumps(report,indent=2))
+          failures=[x for x in report['files'] if x['returncode']]
+          print('translation units',len(cpp),'failures',len(failures))
+          for x in failures[:30]:
+              print('\n###',x['path'])
+              print(x['stderr'][-3000:])
+          PY
+      - name: Summarize missing headers and symbols
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          p=Path('validation/polqa-audit/compile.json')
+          if not p.exists(): raise SystemExit()
+          r=json.loads(p.read_text())
+          missing={}
+          errors={}
+          for x in r['files']:
+              if not x['returncode']: continue
+              for h in re.findall(r'fatal error: ([^:]+): No such file or directory',x['stderr']):
+                  missing[h]=missing.get(h,0)+1
+              first=next((ln for ln in x['stderr'].splitlines() if 'error:' in ln),'')
+              if first: errors[first]=errors.get(first,0)+1
+          s={'cpp_count':r['cpp_count'],'failed':sum(x['returncode']!=0 for x in r['files']),
+             'missing_headers':dict(sorted(missing.items(),key=lambda kv:-kv[1])),
+             'top_errors':dict(list(sorted(errors.items(),key=lambda kv:-kv[1]))[:50])}
+          Path('validation/polqa-audit/summary.json').write_text(json.dumps(s,indent=2))
+          print(json.dumps(s,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polqa-source-audit
+          path: validation/polqa-audit/
