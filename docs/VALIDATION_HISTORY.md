@@ -147,3 +147,19 @@ The evidence supports:
 - a concrete diagnosis that fixed expert weighting is fragile across domains
 
 Phase 4 addresses that failure directly.
+
+## Phase 4 development candidate
+
+The selected candidate is `phase4-native-poly2-balanced-2026-09-25-v1`.
+
+It was fitted using all currently inspected development evidence: 384 TCD samples, 240 NISQA P501 samples, and 144 OpenACE samples. The model is native-first and can run without ViSQOL.
+
+Grouped development cross-validation produced:
+
+- NISQA P501: native Pearson 0.7103; optional-expert Pearson 0.7529
+- OpenACE: native Pearson 0.8315; optional-expert Pearson 0.8520
+- full TCD: native Pearson 0.8029; optional-expert Pearson 0.8283
+
+The optional external-expert contribution is capped at 40 percent and uses a median consensus so one bad expert cannot dominate the final score.
+
+These numbers are development evidence only. A new untouched corpus is required before Phase 4 is described as externally validated.
