@@ -1,0 +1,125 @@
+name: p863-ed3-oracle-stage
+
+on:
+  push:
+    branches:
+      - validation/polqa-oracle-stage
+  workflow_dispatch:
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download official ITU P.863 Edition 3 package robustly
+        run: |
+          mkdir -p /tmp/p863
+          for attempt in $(seq 1 20); do
+            echo "download attempt $attempt"
+            rm -f /tmp/p863/x.zip
+            if curl -L --fail --retry 5 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 20 --max-time 600 \
+              'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items' \
+              -o /tmp/p863/x.zip; then
+              if echo "05a9fbaf9740c2b299f5396c2dd359f651f4e2795050a6d88c174637ed20660e  /tmp/p863/x.zip" | sha256sum -c -; then
+                break
+              fi
+            fi
+            sleep 3
+          done
+          echo "05a9fbaf9740c2b299f5396c2dd359f651f4e2795050a6d88c174637ed20660e  /tmp/p863/x.zip" | sha256sum -c -
+          unzip -q /tmp/p863/x.zip -d /tmp/p863/x
+
+      - name: Stage direct official oracle corpus
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, shutil, json, csv
+
+          root=Path('/tmp/p863/x')
+          annex=next(p for p in root.rglob('Att_Attachments_Annex_A_P863') if p.is_dir())
+          out=Path('validation/p863-oracle-stage')
+          out.mkdir(parents=True,exist_ok=True)
+          tests=['2a','5c','6c']
+
+          def commands(test):
+              rows=[]
+              bat=annex/f'Test_{test}.bat'
+              for line in bat.read_text(errors='ignore').splitlines():
+                  if not re.match(r'^\s*P\.863\s+',line,re.I):
+                      continue
+                  left=re.split(r'\s+[>]{1,2}\s*',line,maxsplit=1)[0]
+                  toks=re.findall(r'"[^"]+"|\S+',left)
+                  if len(toks)<5:
+                      raise RuntimeError(f'bad command: {line}')
+                  rows.append({
+                    'reference_source':toks[1].strip('"').replace('\\','/'),
+                    'degraded_source':toks[2].strip('"').replace('\\','/'),
+                    'sample_rate':int(toks[3]),
+                    'polqa_mode':int(toks[4]),
+                  })
+              return rows
+
+          def resolve(rel):
+              p=annex/rel
+              if p.exists(): return p
+              base=Path(rel).name.lower()
+              hits=[x for x in annex.rglob('*') if x.is_file() and x.name.lower()==base]
+              if len(hits)==1:return hits[0]
+              raise RuntimeError(f'cannot resolve {rel}: {hits[:10]}')
+
+          summary={}
+          for test in tests:
+              rows=commands(test)
+              tdir=out/test
+              tdir.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(annex/f'Test_{test}.bat',tdir/f'Test_{test}.bat')
+              res=annex/'Results Ed. 3'/f'Test_{test}_results.txt'
+              shutil.copy2(res,tdir/f'Test_{test}_results.txt')
+              staged=[]
+              for i,r in enumerate(rows,1):
+                  ref=resolve(r['reference_source'])
+                  deg=resolve(r['degraded_source'])
+                  rd=tdir/'audio'/f'{i:04d}'
+                  rd.mkdir(parents=True,exist_ok=True)
+                  rext=ref.suffix or '.pcm'; dext=deg.suffix or '.pcm'
+                  rp=rd/f'ref{rext}'; dp=rd/f'deg{dext}'
+                  shutil.copy2(ref,rp)
+                  shutil.copy2(deg,dp)
+                  staged.append({
+                    'row_id':f'{test}_{i:04d}',
+                    **r,
+                    'reference_file':str(rp.relative_to(out)),
+                    'degraded_file':str(dp.relative_to(out)),
+                  })
+              with (tdir/'commands.csv').open('w',newline='',encoding='utf-8') as f:
+                  w=csv.DictWriter(f,fieldnames=list(staged[0].keys()))
+                  w.writeheader();w.writerows(staged)
+              txt=res.read_text(errors='ignore')
+              nonempty=[x for x in txt.splitlines() if x.strip()]
+              summary[test]={
+                'commands':len(rows),
+                'result_nonempty_lines':len(nonempty),
+                'result_head':nonempty[:12],
+                'sample_rates':sorted(set(x['sample_rate'] for x in rows)),
+                'modes':sorted(set(x['polqa_mode'] for x in rows)),
+              }
+              print(f'===== TEST {test} =====')
+              print(json.dumps(summary[test],indent=2))
+          (out/'summary.json').write_text(json.dumps(summary,indent=2))
+          PY
+
+      - name: Hash staged oracle
+        run: |
+          cd validation/p863-oracle-stage
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          du -sh .
+          cat summary.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p863-ed3-official-oracle-inputs
+          path: validation/p863-oracle-stage/
+          compression-level: 6
+          retention-days: 30
