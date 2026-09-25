@@ -1,0 +1,77 @@
+name: polqa-source-fast-audit
+on:
+  push:
+    branches:
+      - validation/polqa-source-audit
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          python -m pip install --disable-pip-version-check remotezip
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential
+      - name: Extract source tree directly from ITU ZIP
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          u='https://www.itu.int/rec/dologin_pub.asp?id=T-REC-P.863-201101-S%21%21SOFT-ZST-E&lang=e&type=items'
+          out=Path('/tmp/p863src');out.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(u) as z:
+              names=z.namelist()
+              wanted=[n for n in names if 'POLQA_svn_ITU_Code_updated' in n and not n.endswith('/')]
+              print('archive entries',len(names),'source entries',len(wanted))
+              for n in wanted:z.extract(n,path=out)
+          PY
+      - name: Audit and compile source
+        run: |
+          mkdir -p validation/polqa-fast-audit
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess,json,re,os,collections
+          root=Path('/tmp/p863src')
+          files=[p for p in root.rglob('*') if p.is_file()]
+          cpp=[p for p in files if p.suffix.lower() in {'.cpp','.cc','.cxx','.c'}]
+          hdr=[p for p in files if p.suffix.lower() in {'.h','.hpp'}]
+          incdirs=sorted({p.parent for p in hdr})
+          report={'files':[str(p.relative_to(root)) for p in files],
+                  'cpp_count':len(cpp),'header_count':len(hdr),'include_dirs':[str(x) for x in incdirs]}
+          Path('validation/polqa-fast-audit/tree.json').write_text(json.dumps(report,indent=2))
+          compile=[]
+          od=Path('/tmp/objs');od.mkdir(exist_ok=True)
+          for i,p in enumerate(cpp):
+              cmd=['g++','-std=gnu++17','-fpermissive','-Wno-write-strings','-Wno-deprecated-declarations','-c',str(p),'-o',str(od/f'{i}.o')]
+              for d in incdirs:cmd+=['-I',str(d)]
+              q=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+              compile.append({'path':str(p.relative_to(root)),'returncode':q.returncode,'stderr':q.stderr})
+          Path('validation/polqa-fast-audit/compile.json').write_text(json.dumps(compile,indent=2))
+          miss=collections.Counter();errs=collections.Counter()
+          for x in compile:
+              if x['returncode']==0:continue
+              miss.update(re.findall(r'fatal error: ([^:]+): No such file or directory',x['stderr']))
+              first=next((ln.strip() for ln in x['stderr'].splitlines() if 'error:' in ln),'')
+              if first:errs[first]+=1
+          summary={'cpp_count':len(cpp),'header_count':len(hdr),
+                   'compiled_ok':sum(x['returncode']==0 for x in compile),
+                   'failed':sum(x['returncode']!=0 for x in compile),
+                   'missing_headers':dict(miss.most_common()),
+                   'top_errors':dict(errs.most_common(80))}
+          Path('validation/polqa-fast-audit/summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          print('\nSOURCE FILES')
+          for p in files:print(p.relative_to(root))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polqa-source-fast-audit
+          path: validation/polqa-fast-audit/
