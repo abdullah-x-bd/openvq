@@ -34,30 +34,48 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libsndfile1-dev
-          python -m pip install --disable-pip-version-check numpy soundfile huggingface_hub
+          python -m pip install --disable-pip-version-check numpy soundfile huggingface_hub remotezip
       - name: Build OpenVQ
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
-      - name: Reuse Phase 3 and OpenACE artifacts
+      - name: Reuse Phase 3 and frozen OpenACE expert artifacts
         run: |
-          mkdir -p validation/phase4/phase3 validation/phase4/openace
+          mkdir -p validation/phase4/phase3 validation/phase4/openace-source
           gh run download 36089410545 --repo abdullah-x-bd/openvq --name openvq-phase3-hybrid --dir validation/phase4/phase3
-          gh run download 36122422788 --repo abdullah-x-bd/openvq --name openvq-phase4-forensic --dir validation/phase4/openace
+          gh run download 36099432761 --repo abdullah-x-bd/openvq --name openvq-openace-polqa --dir validation/phase4/openace-source
           test -f validation/phase4/phase3/tcd-train-visqol.csv
           test -f validation/phase4/phase3/nisqa-visqol.csv
-          test -f validation/phase4/openace/openace-features.csv
+          test -f validation/phase4/openace-source/manifest-visqol.csv
+          test -f validation/phase4/openace-source/dataset-revision.txt
       - name: Fetch TCD audio
         run: |
           mkdir -p validation/phase3/tcd
           hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip --local-dir validation/phase3/tcd
           unzip -q validation/phase3/tcd/TCD-VOIP.zip -d validation/phase3/tcd/extracted
-      - name: Reuse frozen NISQA feature table
+      - name: Fetch NISQA P501 and exact OpenACE audio
         run: |
-          cp validation/phase4/phase3/nisqa-hybrid.csv validation/phase4/nisqa-features.csv
-          test -f validation/phase4/nisqa-features.csv
-      - name: Reconstruct full development feature tables
+          python - <<'PY'
+          from pathlib import Path
+          from remotezip import RemoteZip
+          from huggingface_hub import snapshot_download
+
+          u="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          o=Path("validation/phase3/nisqa");o.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(u) as z:
+              for n in [x for x in z.namelist() if "NISQA_TEST_P501/" in x and not x.endswith("/")]:
+                  z.extract(n,path=o)
+
+          revision=Path("validation/phase4/openace-source/dataset-revision.txt").read_text().strip()
+          snapshot_download(
+              repo_id="mcernak/EARS-EMO-OpenACE",
+              repo_type="dataset",
+              revision=revision,
+              local_dir="validation/openace/data",
+          )
+          PY
+      - name: Reconstruct development feature tables with runtime anchor
         run: |
           for split in train dev test; do
             python validation/hybrid_features.py \
@@ -65,6 +83,15 @@ jobs:
               validation/phase4/tcd-$split-features.csv \
               --cli ./build/openvq_cli --jobs 4
           done
+          python validation/hybrid_features.py \
+            validation/phase4/phase3/nisqa-visqol.csv \
+            validation/phase4/nisqa-features.csv
+            validation/phase4/openace-features.csv \
+            --cli ./build/openvq_cli --jobs 4
+          python validation/phase4_extract_openace.py \
+            validation/phase4/openace-source/manifest-visqol.csv \
+            validation/phase4/openace-features.csv \
+            --cli ./build/openvq_cli --jobs 4
       - name: Train and cross-validate Phase 4 development candidate
         run: |
           python validation/phase4_train.py \
@@ -72,7 +99,7 @@ jobs:
             --tcd-dev validation/phase4/tcd-dev-features.csv \
             --tcd-test validation/phase4/tcd-test-features.csv \
             --nisqa validation/phase4/nisqa-features.csv \
-            --openace validation/phase4/openace/openace-features.csv \
+            --openace validation/phase4/openace-features.csv \
             --out validation/phase4/phase4-model.json \
             --cpp-out validation/phase4/phase4_model.inc
       - uses: actions/upload-artifact@v4
