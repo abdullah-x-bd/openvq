@@ -385,12 +385,12 @@
         "bias": 0.28300487359535936
       },
       "condition": {
-        "n": 7,
-        "pearson": 0.9911344471383791,
-        "spearman": 0.9642857142857143,
-        "rmse": 0.3334916053265766,
-        "mae": 0.3147322103691948,
-        "bias": 0.2542560689388129
+        "n": 15,
+        "pearson": 0.9800277357088103,
+        "spearman": 0.9571428571428572,
+        "rmse": 0.3843956331872313,
+        "mae": 0.339449272263716,
+        "bias": 0.28300487359535953
       }
     },
     "nisqa_p501_external": {
@@ -421,5 +421,11 @@
         "bias": 0.2599198311568866
       }
     }
+  },
+  "reporting_correction": {
+    "date": "2026-09-25",
+    "scope": "metrics only; frozen model coefficients and predictions unchanged",
+    "issue": "The original hybrid report grouped TCD condition_id without family, collapsing 15 held-out family-condition pairs into 7 numeric IDs.",
+    "correction": "Condition-level TCD metrics now group by (family, condition_id). Utterance-level metrics are unchanged."
   }
 }
