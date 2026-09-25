@@ -1,5 +1,15 @@
 name: validation-openace-polqa
 on:
+  push:
+    branches:
+      - "validation/openace-polqa"
+    paths:
+      - "validation/openace_*.py"
+      - "validation/OPENACE_PROTOCOL.md"
+      - "validation/visqol_batch.py"
+      - "src/**"
+      - "include/**"
+      - ".github/workflows/validation-openace-polqa.yml"
   pull_request:
     paths:
       - "validation/openace_*.py"
