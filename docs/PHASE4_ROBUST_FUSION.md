@@ -16,6 +16,23 @@ OpenACE breaks that pattern. The recomputed speech-mode ViSQOL score correlates 
 
 A fixed global coefficient therefore creates a single-point domain failure.
 
+## Completed forensic result
+
+The first Phase 4 forensic run extracted the native OpenVQ feature vector for all 144 OpenACE codec samples and reconstructed the frozen Phase 3 penalty.
+
+Key findings:
+
+- Phase 3 speech-expert contribution represented about 68.5 percent of the variable penalty on OpenACE.
+- Audio-expert contribution represented about 10.5 percent.
+- The Phase 3 native terms were underweighted and were not calibrated for the codec-domain feature geometry.
+- A diagnostic ridge model using only native OpenVQ features, evaluated leave-one-speaker-out on OpenACE, reached Pearson 0.9065 and Spearman 0.8529.
+- The same diagnostic using only the two ViSQOL experts reached Pearson 0.6659 and Spearman 0.6379.
+- Native plus expert features reached Pearson 0.9261 and Spearman 0.8700.
+
+These ridge numbers are forensic development evidence, not untouched validation. Their significance is architectural: the native OpenVQ analyzer contains strong codec-quality information that the frozen Phase 3 fusion failed to exploit.
+
+This supports a native-first Phase 4 design. ViSQOL does not need to define the OpenVQ score.
+
 ## Phase 4 design principles
 
 1. Native OpenVQ evidence is the anchor.
