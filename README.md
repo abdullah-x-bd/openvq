@@ -69,13 +69,19 @@ Analyze two WAV files with native OpenVQ:
 
     ./build/openvq_cli reference.wav degraded.wav
 
-Supply independently computed Phase 3 ViSQOL experts:
+Run the native-first Phase 4 candidate with no external expert:
 
-    ./build/openvq_cli reference.wav degraded.wav \
+    ./build/openvq_cli reference.wav degraded.wav --phase4
+
+Run Phase 4 with optional independently computed ViSQOL experts:
+
+    ./build/openvq_cli reference.wav degraded.wav --phase4 \
         --visqol-speech-score 4.10 \
         --visqol-audio-score 4.25
 
-When both expert values are present, the current frozen Phase 3 fusion is applied.
+Phase 4 remains native-first. When both experts are supplied they can influence only the capped robust consensus term.
+
+For reproducibility, the frozen Phase 3 hybrid remains available when ViSQOL speech and audio scores are supplied without `--phase4`.
 
 ## Human-MOS calibration
 
