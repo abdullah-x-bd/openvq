@@ -55,6 +55,7 @@ def main():
                 "codec": row["codec"],
                 "filename": row["distorted_file"],
                 "human_mushra": float(row["distorted_mushra_rating"]),
+                "anchor_mos": float(obj["mos"]),
                 "polqa_score": row.get("polqa_score", ""),
                 "published_visqol_score": row.get("visqol_score", ""),
                 "visqol_speech_mos": float(row["visqol_speech_mos"]),
