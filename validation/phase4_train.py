@@ -107,7 +107,7 @@ def fit(X,y,datasets,alpha):
     sw=np.sqrt(w)
     Aw=A*sw[:,None]; yw=y*sw
     reg=np.sqrt(alpha)*np.eye(A.shape[1]);reg[0,0]=0
-    coef=np.linalg.solve(Aw.T@Aw+reg,Aw.T@yw)
+    coef=np.linalg.solve(Aw.T@Aw+reg.T@reg,Aw.T@yw)
     return mu,sd,coef
 
 def predict_native(model,X):
