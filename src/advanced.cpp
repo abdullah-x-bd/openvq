@@ -1,5 +1,6 @@
 #include "openvq/advanced.h"
 #include "openvq/hybrid.h"
+#include "openvq/phase4.h"
 
 #include <algorithm>
 #include <cmath>
@@ -600,9 +601,23 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
       0.0,
       1.0);
 
-  if (options.enable_frozen_phase3_hybrid &&
-      options.visqol_speech_mos.has_value() &&
-      options.visqol_audio_mos.has_value()) {
+  if (options.enable_phase4_candidate) {
+    const auto prediction = EvaluatePhase4(
+        out, options.visqol_speech_mos, options.visqol_audio_mos);
+    out.mos = prediction.mos;
+    out.phase4_applied = true;
+    out.phase4_experts_applied = prediction.experts_applied;
+    out.phase4_native_mos = prediction.native_mos;
+    if (prediction.experts_applied) {
+      out.phase4_expert_disagreement = prediction.expert_disagreement;
+      out.visqol_speech_mos =
+          Clamp(*options.visqol_speech_mos, 1.0, 5.0);
+      out.visqol_audio_mos =
+          Clamp(*options.visqol_audio_mos, 1.0, 5.0);
+    }
+  } else if (options.enable_frozen_phase3_hybrid &&
+             options.visqol_speech_mos.has_value() &&
+             options.visqol_audio_mos.has_value()) {
     HybridExpertScores experts{
         Clamp(*options.visqol_speech_mos, 1.0, 5.0),
         Clamp(*options.visqol_audio_mos, 1.0, 5.0)};
@@ -625,11 +640,24 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
     o << base.substr(comma, base.size() - comma - 1);
   }
   o << ",\"base_mos\":" << r.base.mos
-    << ",\"hybrid_applied\":" << (r.hybrid_applied ? "true" : "false");
+    << ",\"hybrid_applied\":" << (r.hybrid_applied ? "true" : "false")
+    << ",\"phase4_applied\":" << (r.phase4_applied ? "true" : "false");
   if (r.hybrid_applied) {
     o << ",\"hybrid_model\":\"" << kFrozenPhase3ModelId << "\""
       << ",\"visqol_speech_mos\":" << *r.visqol_speech_mos
       << ",\"visqol_audio_mos\":" << *r.visqol_audio_mos;
+  }
+  if (r.phase4_applied) {
+    o << ",\"phase4_model\":\"" << Phase4ModelId() << "\""
+      << ",\"phase4_native_mos\":" << *r.phase4_native_mos
+      << ",\"phase4_experts_applied\":"
+      << (r.phase4_experts_applied ? "true" : "false");
+    if (r.phase4_experts_applied) {
+      o << ",\"phase4_expert_disagreement\":"
+        << *r.phase4_expert_disagreement
+        << ",\"visqol_speech_mos\":" << *r.visqol_speech_mos
+        << ",\"visqol_audio_mos\":" << *r.visqol_audio_mos;
+    }
   }
   o << ",\"advanced\":{\"erb_similarity\":" << r.advanced.erb_similarity
     << ",\"multi_resolution_similarity\":"
