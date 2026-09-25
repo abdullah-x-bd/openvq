@@ -3,7 +3,7 @@
 import argparse,csv,json,os,subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-MODEL_ID="phase4-native-poly2-balanced-2026-09-25-v1"
+MODEL_ID="phase4-native-poly2-constrained-2026-09-25-v3"
 
 def main():
     ap=argparse.ArgumentParser()
