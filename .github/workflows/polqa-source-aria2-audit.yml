@@ -1,0 +1,72 @@
+name: polqa-source-aria2-audit
+on:
+  push:
+    branches:
+      - validation/polqa-source-audit
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 unzip build-essential
+      - name: Download official ITU P.863 2011 attachment fast
+        run: |
+          mkdir -p /tmp/p863
+          aria2c -x16 -s16 -k1M --max-tries=20 --retry-wait=2 \
+            --file-allocation=none \
+            -d /tmp/p863 -o p863-2011.zip \
+            'https://www.itu.int/rec/dologin_pub.asp?id=T-REC-P.863-201101-S%21%21SOFT-ZST-E&lang=e&type=items'
+          sha256sum /tmp/p863/p863-2011.zip
+          unzip -q /tmp/p863/p863-2011.zip -d /tmp/p863/src
+      - name: Audit source and compile translation units
+        run: |
+          mkdir -p validation/polqa-aria2-audit
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,json,re,collections
+          root=Path('/tmp/p863/src')
+          roots=[p for p in root.rglob('*') if p.is_dir() and 'POLQA_svn_ITU_Code_updated' in str(p)]
+          srcroot=min(roots,key=lambda p:len(str(p))) if roots else root
+          files=[p for p in srcroot.rglob('*') if p.is_file()]
+          cpp=[p for p in files if p.suffix.lower() in {'.cpp','.cc','.cxx','.c'}]
+          hdr=[p for p in files if p.suffix.lower() in {'.h','.hpp'}]
+          incdirs=sorted({p.parent for p in hdr})
+          tree={'source_root':str(srcroot),'file_count':len(files),'cpp_count':len(cpp),'header_count':len(hdr),
+                'files':[str(p.relative_to(srcroot)) for p in files]}
+          Path('validation/polqa-aria2-audit/tree.json').write_text(json.dumps(tree,indent=2))
+          od=Path('/tmp/objs');od.mkdir(exist_ok=True)
+          cres=[]
+          for i,p in enumerate(cpp):
+              cmd=['g++','-std=gnu++17','-fpermissive','-Wno-write-strings','-Wno-deprecated-declarations','-c',str(p),'-o',str(od/f'{i}.o')]
+              for d in incdirs:cmd+=['-I',str(d)]
+              q=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+              cres.append({'path':str(p.relative_to(srcroot)),'returncode':q.returncode,'stderr':q.stderr[-16000:]})
+          Path('validation/polqa-aria2-audit/compile.json').write_text(json.dumps(cres,indent=2))
+          miss=collections.Counter();errs=collections.Counter()
+          for x in cres:
+              if x['returncode']==0:continue
+              miss.update(re.findall(r'fatal error: ([^:]+): No such file or directory',x['stderr']))
+              for ln in x['stderr'].splitlines():
+                  if 'error:' in ln:
+                      errs[ln.strip()]+=1;break
+          summary={'source_root':str(srcroot),'cpp_count':len(cpp),'header_count':len(hdr),
+                   'compiled_ok':sum(x['returncode']==0 for x in cres),
+                   'failed':sum(x['returncode']!=0 for x in cres),
+                   'missing_headers':dict(miss.most_common()),
+                   'top_errors':dict(errs.most_common(100))}
+          Path('validation/polqa-aria2-audit/summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          print('SOURCE FILES')
+          for p in files: print(p.relative_to(srcroot))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polqa-source-aria2-audit
+          path: validation/polqa-aria2-audit/
