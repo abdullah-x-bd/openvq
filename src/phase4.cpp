@@ -71,16 +71,8 @@ Phase4Prediction EvaluatePhase4(
     const std::optional<double>& visqol_speech_mos,
     const std::optional<double>& visqol_audio_mos) {
   Phase4Prediction out;
-  const double learned_quality = NativeQuality(result);
-  // Phase 4 v2 keeps the independently engineered native OpenVQ score as a
-  // hard behavioral anchor. The cross-domain learned model is allowed to make
-  // only a bounded 20% correction. This preserves monotonic telecom behavior
-  // while retaining cross-domain calibration information.
-  const double anchor_quality = Clamp01((result.mos - 1.0) / 4.0);
-  const double native_quality =
-      (1.0 - phase4_model::kLearnedNativeBlend) * anchor_quality +
-      phase4_model::kLearnedNativeBlend * learned_quality;
-  out.native_mos = 1.0 + 4.0 * Clamp01(native_quality);
+  const double native_quality = NativeQuality(result);
+  out.native_mos = 1.0 + 4.0 * native_quality;
   out.mos = out.native_mos;
 
   if (visqol_speech_mos.has_value() && visqol_audio_mos.has_value()) {
