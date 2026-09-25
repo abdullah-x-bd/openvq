@@ -1,4 +1,7 @@
 name: validation-phase4-train
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches:
