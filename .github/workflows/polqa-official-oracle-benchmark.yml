@@ -78,33 +78,21 @@ jobs:
           mkdir -p validation/polqa-oracle
           python - <<'PY'
           from pathlib import Path
-          import csv,re,wave,struct,json,os
+          import csv,re,wave,json
 
           root=Path('/tmp/p863/extracted')
+          annex=next(p for p in root.rglob('Att_Attachments_Annex_A_P863') if p.is_dir())
           out=Path('validation/polqa-oracle')
           wanted={'2a':8000,'5c':48000,'6c':48000}
 
-          raw_files=list(root.rglob('*.raw'))
-          by_base={}
-          for p in raw_files:
-              by_base.setdefault(p.name.lower(),[]).append(p)
-
-          def clean_path(x):
-              return x.strip().strip('"').replace('\\','/').replace('../','').replace('./','')
-
-          def resolve(token):
-              t=clean_path(token)
-              # exact suffix first
-              hits=[p for p in raw_files if str(p).replace('\\','/').lower().endswith(t.lower())]
+          def resolve(rel):
+              q=rel.replace('\\','/').strip().strip('"')
+              p=annex/q
+              if p.exists(): return p
+              base=Path(q).name.lower()
+              hits=[x for x in annex.rglob('*') if x.is_file() and x.name.lower()==base]
               if len(hits)==1:return hits[0]
-              base=Path(t).name.lower()
-              h=by_base.get(base,[])
-              if len(h)==1:return h[0]
-              if h:
-                  # Prefer the expected conformance media directories.
-                  pref=[p for p in h if any(k in str(p).upper() for k in ['VOIP','SWB_TNO_601','SWB_SQ_48K'])]
-                  if len(pref)==1:return pref[0]
-              return None
+              raise RuntimeError(f'cannot uniquely resolve {rel}: {hits[:5]}')
 
           def raw_to_wav(src,dst,sr):
               data=src.read_bytes()
@@ -113,62 +101,78 @@ jobs:
               with wave.open(str(dst),'wb') as w:
                   w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr);w.writeframes(data)
 
-          rows=[]
-          parse_debug=[]
-          for test,sr in wanted.items():
-              candidates=[p for p in root.rglob('*') if p.is_file() and p.name.lower()==f'test_{test}_results_ref.txt']
-              if not candidates:
-                  raise SystemExit(f'missing Test_{test}_results_ref.txt')
-              rp=candidates[0]
-              n=0
-              for line_no,line in enumerate(rp.read_text(errors='ignore').splitlines(),1):
-                  if '.raw' not in line.lower():continue
-                  # Accept paths separated by whitespace, semicolon, comma or tabs.
-                  raw_tokens=re.findall(r'[^\s,;"]+\.raw|"[^"]+\.raw"',line,flags=re.I)
-                  nums=re.findall(r'(?<![A-Za-z0-9_.])[-+]?(?:\d+\.\d+|\d+)(?:[Ee][-+]?\d+)?',line)
-                  if len(raw_tokens)<2 or not nums:
-                      parse_debug.append({'test':test,'line':line_no,'text':line})
-                      continue
-                  ref=resolve(raw_tokens[0]);deg=resolve(raw_tokens[1])
-                  if ref is None or deg is None:
-                      parse_debug.append({'test':test,'line':line_no,'text':line,'ref':str(ref),'deg':str(deg)})
-                      continue
-                  # The reference score is the final numeric field in the official result line.
-                  score=float(nums[-1])
-                  n+=1
+          def parse_commands(test):
+              bat=annex/f'Test_{test}.bat'
+              rows=[]
+              for line in bat.read_text(errors='ignore').splitlines():
+                  if not re.match(r'^\s*P\.863\s+',line,re.I): continue
+                  # P.863 ref test sample_rate mode > output
+                  left=re.split(r'\s+[>]{1,2}\s*',line,maxsplit=1)[0]
+                  toks=re.findall(r'"[^"]+"|\S+',left)
+                  if len(toks)<5: raise RuntimeError(f'cannot parse command: {line}')
+                  ref=toks[1].strip('"'); deg=toks[2].strip('"')
+                  sr=int(toks[3]); mode=int(toks[4])
+                  rows.append((ref,deg,sr,mode,line))
+              return rows
+
+          def parse_scores(test):
+              rp=annex/'Results Ed. 3'/f'Test_{test}_results.txt'
+              lines=[x.strip() for x in rp.read_text(errors='ignore').splitlines() if x.strip()]
+              vals=[]
+              for line in lines:
+                  # P.863 reference output contains one MOS-LQO result per invocation.
+                  nums=re.findall(r'[-+]?(?:\d+\.\d+|\d+)(?:[Ee][-+]?\d+)?',line)
+                  if not nums: continue
+                  candidates=[float(x) for x in nums if 0.5 <= float(x) <= 5.5]
+                  if candidates: vals.append(candidates[-1])
+              return vals,lines
+
+          allrows=[];debug={}
+          for test,expected_sr in wanted.items():
+              cmds=parse_commands(test)
+              scores,rawlines=parse_scores(test)
+              debug[test]={'commands':len(cmds),'scores':len(scores),'result_head':rawlines[:8],
+                           'command_head':[x[-1] for x in cmds[:4]]}
+              if len(scores)!=len(cmds):
+                  Path(out/'parse-debug.json').write_text(json.dumps(debug,indent=2))
+                  raise SystemExit(f'{test}: commands={len(cmds)} scores={len(scores)}')
+              for i,((refrel,degrel,sr,mode,_),score) in enumerate(zip(cmds,scores),1):
+                  if sr!=expected_sr:
+                      raise SystemExit(f'{test} row {i}: unexpected rate {sr}')
+                  ref=resolve(refrel);deg=resolve(degrel)
                   rd=out/'audio'/test
-                  rw=rd/f'{n:04d}_ref.wav';dw=rd/f'{n:04d}_deg.wav'
-                  raw_to_wav(ref,rw,sr);raw_to_wav(deg,dw,sr)
-                  rows.append({
+                  rw=rd/f'{i:04d}_ref.wav';dw=rd/f'{i:04d}_deg.wav'
+                  raw_to_wav(ref,rw,sr); raw_to_wav(deg,dw,sr)
+                  allrows.append({
                     'reference':str(rw.resolve()),
                     'degraded':str(dw.resolve()),
                     'human_mos':score,
-                    'condition_id':f'{test}_{n:04d}',
+                    'condition_id':f'{test}_{i:04d}',
                     'family':f'P863_TEST_{test.upper()}',
                     'filename':deg.name,
                     'official_polqa':score,
                     'test':test,
                     'sample_rate':sr,
-                    'source_result_file':str(rp.relative_to(root)),
+                    'polqa_mode':mode,
+                    'reference_source':refrel,
+                    'degraded_source':degrel,
                   })
-              print(test,'resolved',n)
+              print(test,'pairs',len(cmds),'score range',min(scores),max(scores),flush=True)
 
-          expected={'2a':40,'5c':200,'6c':50}
-          counts={t:sum(r['test']==t for r in rows) for t in wanted}
-          if counts!=expected:
-              Path(out/'parse-debug.json').write_text(json.dumps({'counts':counts,'debug':parse_debug},indent=2))
-              raise SystemExit(f'unexpected resolved counts {counts}, expected {expected}')
-
-          fields=list(rows[0].keys())
+          counts={t:sum(r['test']==t for r in allrows) for t in wanted}
+          if sum(counts.values()) < 100:
+              raise SystemExit(f'unexpectedly small oracle set: {counts}')
+          fields=list(allrows[0].keys())
           with open(out/'official-oracle.csv','w',newline='',encoding='utf-8') as f:
-              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(allrows)
           Path(out/'source-summary.json').write_text(json.dumps({
             'edition':'ITU-T P.863 (03/2018), Edition 3',
-            'tests':counts,
-            'total':len(rows),
-            'note':'Uses direct attached PCM without resampling: mandatory tests 2a, 5c and 6c.'
+            'tests':counts,'total':len(allrows),
+            'attachment_sha256':'05a9fbaf9740c2b299f5396c2dd359f651f4e2795050a6d88c174637ed20660e',
+            'parsing_debug':debug,
+            'note':'Direct attached PCM only. No resampled external corpus.'
           },indent=2))
-          print('TOTAL',len(rows))
+          print('TOTAL',len(allrows),flush=True)
           PY
 
       - name: Score ViSQOL experts
