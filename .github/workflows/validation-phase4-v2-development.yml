@@ -1,0 +1,92 @@
+name: validation-phase4-v2-development
+on:
+  push:
+    branches: ["phase4/robust-fusion"]
+    paths:
+      - "validation/phase4_v2_*.py"
+      - "validation/PHASE4_PROTOCOL.md"
+      - ".github/workflows/validation-phase4-v2-development.yml"
+  pull_request:
+    paths:
+      - "validation/phase4_v2_*.py"
+      - "validation/PHASE4_PROTOCOL.md"
+      - ".github/workflows/validation-phase4-v2-development.yml"
+  workflow_dispatch:
+
+jobs:
+  v2-development:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check numpy
+      - name: Download frozen Phase-3 feature tables
+        uses: actions/download-artifact@v4
+        with:
+          name: openvq-phase3-hybrid
+          path: validation/phase4v2/phase3
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36089410545
+      - name: Download observed OpenACE feature table
+        uses: actions/download-artifact@v4
+        with:
+          name: openvq-phase4-development
+          path: validation/phase4v2/openace
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36104456276
+      - name: Fit and grouped-cross-validate Phase 4 v2
+        run: |
+          mkdir -p validation/phase4v2
+          python validation/phase4_v2_fit.py \
+            --nisqa validation/phase4v2/phase3/nisqa-hybrid.csv \
+            --tcd validation/phase4v2/phase3/tcd-test-hybrid.csv \
+            --openace validation/phase4v2/openace/openace-features.csv \
+            --out validation/phase4v2/phase4-v2-candidate.json
+      - name: Apply to NISQA development set
+        run: |
+          python validation/phase4_v2_apply.py \
+            validation/phase4v2/phase3/nisqa-hybrid.csv \
+            validation/phase4v2/phase4-v2-candidate.json \
+            validation/phase4v2/nisqa-v2.csv
+          python validation/phase4_v2_report.py validation/phase4v2/nisqa-v2.csv \
+            --target mos --out validation/phase4v2/nisqa-v2-report.json
+      - name: Apply to TCD development set
+        run: |
+          python validation/phase4_v2_apply.py \
+            validation/phase4v2/phase3/tcd-test-hybrid.csv \
+            validation/phase4v2/phase4-v2-candidate.json \
+            validation/phase4v2/tcd-v2.csv
+          python validation/phase4_v2_report.py validation/phase4v2/tcd-v2.csv \
+            --target mos --out validation/phase4v2/tcd-v2-report.json
+      - name: Apply to OpenACE development set
+        run: |
+          python validation/phase4_v2_apply.py \
+            validation/phase4v2/openace/openace-features.csv \
+            validation/phase4v2/phase4-v2-candidate.json \
+            validation/phase4v2/openace-v2.csv
+          python validation/phase4_v2_report.py validation/phase4v2/openace-v2.csv \
+            --target mushra --out validation/phase4v2/openace-v2-report.json
+      - name: Enforce development gate
+        run: |
+          python - <<'PY'
+          import json
+          p="validation/phase4v2/phase4-v2-candidate.json"
+          m=json.load(open(p))
+          if not m["development_gate"]["passed"]:
+              raise SystemExit("Phase-4 v2 development gate failed")
+          print("Phase-4 v2 development gate PASSED")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-v2-development
+          path: validation/phase4v2/*
