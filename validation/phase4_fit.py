@@ -103,7 +103,7 @@ def main():
       "provenance":{
         "phase3_artifact_run":36089410545,
         "phase3_artifact_id":10847922836,
-        "openace_not_used_for_fit":true
+        "openace_not_used_for_fit":True
       }
     }
     Path(a.out).parent.mkdir(parents=True,exist_ok=True)
