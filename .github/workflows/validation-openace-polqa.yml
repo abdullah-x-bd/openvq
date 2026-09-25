@@ -1,0 +1,123 @@
+name: validation-openace-polqa
+on:
+  pull_request:
+    paths:
+      - "validation/openace_*.py"
+      - "validation/OPENACE_PROTOCOL.md"
+      - "validation/visqol_batch.py"
+      - "src/**"
+      - "include/**"
+      - ".github/workflows/validation-openace-polqa.yml"
+  workflow_dispatch:
+
+jobs:
+  openace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl libsndfile1-dev libarmadillo-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile huggingface_hub
+
+      - name: Build frozen OpenVQ candidate
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Build Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
+          cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - patched to system headers for reproducible historical build
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
+
+      - name: Resolve and fetch frozen OpenACE snapshot
+        run: |
+          mkdir -p validation/openace
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import HfApi, snapshot_download
+          repo="mcernak/EARS-EMO-OpenACE"
+          info=HfApi().dataset_info(repo)
+          Path("validation/openace/dataset-revision.txt").write_text(info.sha+"\n")
+          snapshot_download(
+              repo_id=repo,
+              repo_type="dataset",
+              revision=info.sha,
+              local_dir="validation/openace/data",
+          )
+          print("OpenACE revision", info.sha)
+          PY
+
+      - name: Prepare fixed 144-sample OpenACE set
+        run: |
+          python validation/openace_prepare.py \
+            validation/openace/data validation/openace/manifest.csv
+
+      - name: Recompute frozen ViSQOL experts
+        run: |
+          python validation/visqol_batch.py \
+            validation/openace/manifest.csv validation/openace/manifest-visqol.csv \
+            --binary /tmp/visqol/bazel-bin/visqol
+
+      - name: Score frozen OpenVQ Phase 3
+        run: |
+          python validation/openace_score.py \
+            validation/openace/manifest-visqol.csv validation/openace/scored.csv \
+            --cli ./build/openvq_cli --jobs 4
+
+      - name: Compare OpenVQ with published POLQA
+        run: |
+          python validation/openace_report.py validation/openace/scored.csv \
+            --out validation/openace/report.json \
+            --bootstrap 10000
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-openace-polqa
+          path: |
+            validation/openace/dataset-revision.txt
+            validation/openace/manifest.csv
+            validation/openace/manifest-visqol.csv
+            validation/openace/scored.csv
+            validation/openace/report.json
