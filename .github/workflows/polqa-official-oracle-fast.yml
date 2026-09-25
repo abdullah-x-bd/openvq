@@ -1,0 +1,231 @@
+name: polqa-official-oracle-fast
+
+on:
+  push:
+    branches:
+      - validation/polqa-oracle-fast
+  workflow_dispatch:
+
+jobs:
+  score:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip libsndfile1-dev libarmadillo-dev
+          curl -L -o /tmp/bazel https://github.com/bazelbuild/bazel/releases/download/5.1.0/bazel-5.1.0-linux-x86_64
+          sudo install -m 0755 /tmp/bazel /usr/local/bin/bazel
+          python -m pip install --disable-pip-version-check numpy scipy soundfile
+      - name: Build frozen OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Build Google ViSQOL v3.3.3
+        run: |
+          git clone --depth 1 --branch v3.3.3 https://github.com/google/visqol.git /tmp/visqol
+          mkdir -p /tmp/armadillo_repo/include
+          cp -a /usr/include/armadillo /tmp/armadillo_repo/include/
+          cp -a /usr/include/armadillo_bits /tmp/armadillo_repo/include/
+          touch /tmp/armadillo_repo/WORKSPACE
+          cat > /tmp/armadillo_repo/BUILD <<'EOF'
+          cc_library(
+              name = "armadillo_header",
+              hdrs = glob(["include/armadillo", "include/armadillo_bits/*.hpp"]),
+              includes = ["include/"],
+              visibility = ["//visibility:public"],
+          )
+          EOF
+          cd /tmp/visqol
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("WORKSPACE")
+          s=p.read_text()
+          a=s.index("# Armadillo Headers")
+          b=s.index("# PFFFT",a)
+          replacement='''# Armadillo Headers - system headers
+          local_repository(
+              name = "armadillo_headers",
+              path = "/tmp/armadillo_repo",
+          )
+
+          '''
+          p.write_text(s[:a]+replacement+s[b:])
+          PY
+          LC_ALL=C bazel build :visqol -c opt \
+            --cxxopt=-include --cxxopt=cstdint \
+            --cxxopt=-DFLATBUFFERS_LOCALE_INDEPENDENT=0
+      - name: Download official ITU P.863 Edition 3 package
+        run: |
+          mkdir -p /tmp/p863
+          curl -L --fail --retry 30 --retry-delay 2 \
+            'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items' \
+            -o /tmp/p863/x.zip
+          echo "05a9fbaf9740c2b299f5396c2dd359f651f4e2795050a6d88c174637ed20660e  /tmp/p863/x.zip" | sha256sum -c -
+          unzip -q /tmp/p863/x.zip -d /tmp/p863/x
+      - name: Prepare shard \${{ matrix.shard }}
+        env:
+          SHARD: \${{ matrix.shard }}
+        run: |
+          mkdir -p validation/polqa-fast
+          python - <<'PY'
+          from pathlib import Path
+          import csv,re,wave,os
+          shard=int(os.environ["SHARD"]); nshards=5
+          root=Path('/tmp/p863/x')
+          annex=next(p for p in root.rglob('Att_Attachments_Annex_A_P863') if p.is_dir())
+          out=Path('validation/polqa-fast')
+          wanted={'2a':8000,'5c':48000,'6c':48000}
+          def resolve(rel):
+              q=rel.replace('\\','/').strip().strip('"')
+              p=annex/q
+              if p.exists(): return p
+              base=Path(q).name.lower()
+              hits=[x for x in annex.rglob('*') if x.is_file() and x.name.lower()==base]
+              if len(hits)==1:return hits[0]
+              raise RuntimeError(f'cannot uniquely resolve {rel}: {hits[:5]}')
+          def raw_to_wav(src,dst,sr):
+              data=src.read_bytes()
+              if len(data)%2:data=data[:-1]
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              with wave.open(str(dst),'wb') as w:
+                  w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr);w.writeframes(data)
+          def commands(test):
+              a=[]
+              for line in (annex/f'Test_{test}.bat').read_text(errors='ignore').splitlines():
+                  if not re.match(r'^\s*P\.863\s+',line,re.I):continue
+                  left=re.split(r'\s+[>]{1,2}\s*',line,maxsplit=1)[0]
+                  toks=re.findall(r'"[^"]+"|\S+',left)
+                  if len(toks)<5:raise RuntimeError(f'bad command {line}')
+                  a.append((toks[1].strip('"'),toks[2].strip('"'),int(toks[3]),int(toks[4])))
+              return a
+          def scores(test,n):
+              rp=annex/'Results Ed. 3'/f'Test_{test}_results.txt'
+              raw=[x.strip() for x in rp.read_text(errors='ignore').splitlines() if x.strip()]
+              vals=[]
+              for line in raw:
+                  nums=re.findall(r'[-+]?(?:\d+\.\d+|\d+)(?:[Ee][-+]?\d+)?',line)
+                  cand=[float(x) for x in nums if 1.0 <= float(x) <= 5.0]
+                  if cand:vals.append(cand[-1])
+              if len(vals)==n:return vals
+              allnums=[float(x) for x in re.findall(r'[-+]?\d+\.\d+(?:[Ee][-+]?\d+)?',rp.read_text(errors='ignore'))]
+              allnums=[x for x in allnums if 1.0<=x<=5.0]
+              if len(allnums)==n:return allnums
+              raise RuntimeError(f'{test}: commands={n}, line_scores={len(vals)}, decimals={len(allnums)}, head={raw[:8]}')
+          allrows=[]
+          for test,expected_sr in wanted.items():
+              cmd=commands(test); sc=scores(test,len(cmd))
+              for i,((refrel,degrel,sr,mode),score) in enumerate(zip(cmd,sc),1):
+                  if sr!=expected_sr:raise RuntimeError(f'{test}/{i}: rate {sr}')
+                  ref=resolve(refrel);deg=resolve(degrel)
+                  allrows.append((f'{test}_{i:04d}',test,i,refrel,degrel,ref,deg,sr,mode,score))
+          allrows.sort(key=lambda x:(x[1],x[2]))
+          selected=[r for idx,r in enumerate(allrows) if idx%nshards==shard]
+          rows=[]
+          for rowid,test,i,refrel,degrel,ref,deg,sr,mode,score in selected:
+              d=out/'audio'/rowid; rw=d/'ref.wav';dw=d/'deg.wav'
+              raw_to_wav(ref,rw,sr);raw_to_wav(deg,dw,sr)
+              rows.append({'row_id':rowid,'reference':str(rw.resolve()),'degraded':str(dw.resolve()),
+                'human_mos':score,'condition_id':rowid,'family':f'P863_TEST_{test.upper()}',
+                'filename':deg.name,'official_polqa':score,'test':test,'sample_rate':sr,'polqa_mode':mode,
+                'reference_source':refrel,'degraded_source':degrel})
+          with open(out/f'shard-{shard}-manifest.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=list(rows[0].keys()));w.writeheader();w.writerows(rows)
+          print('all pairs',len(allrows),'shard',shard,'rows',len(rows))
+          PY
+      - name: Score ViSQOL shard
+        env:
+          SHARD: \${{ matrix.shard }}
+        run: |
+          python validation/visqol_batch.py \
+            validation/polqa-fast/shard-\${SHARD}-manifest.csv \
+            validation/polqa-fast/shard-\${SHARD}-visqol.csv \
+            --binary /tmp/visqol/bazel-bin/visqol
+      - name: Score frozen OpenVQ Phase 3 shard
+        env:
+          SHARD: \${{ matrix.shard }}
+        run: |
+          python - <<'PY'
+          import os,csv,json,subprocess
+          shard=int(os.environ["SHARD"])
+          rows=list(csv.DictReader(open(f'validation/polqa-fast/shard-{shard}-visqol.csv',newline='',encoding='utf-8')))
+          for r in rows:
+              obj=json.loads(subprocess.check_output(['./build/openvq_cli',r['reference'],r['degraded'],
+                '--visqol-speech-score',r['visqol_speech_mos'],'--visqol-audio-score',r['visqol_audio_mos']],text=True))
+              if not obj.get('hybrid_applied'):raise RuntimeError('frozen hybrid not applied')
+              r['openvq_mos']=obj['mos']
+          with open(f'validation/polqa-fast/shard-{shard}-scored.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=list(rows[0].keys()));w.writeheader();w.writerows(rows)
+          print('scored',len(rows),'rows')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oracle-shard-\${{ matrix.shard }}
+          path: validation/polqa-fast/shard-\${{ matrix.shard }}-scored.csv
+
+  aggregate:
+    needs: score
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: oracle-shard-*
+          path: shards
+      - name: Aggregate official-oracle comparison
+        run: |
+          python - <<'PY'
+          import csv,json,math
+          from pathlib import Path
+          files=sorted(Path('shards').rglob('*-scored.csv'));rows=[]
+          for p in files:rows.extend(csv.DictReader(p.open(newline='',encoding='utf-8')))
+          rows.sort(key=lambda r:r['row_id'])
+          if len(rows)<100:raise SystemExit(f'only {len(rows)} rows')
+          def ranks(v):
+              order=sorted(range(len(v)),key=lambda i:v[i]);r=[0.0]*len(v);i=0
+              while i<len(order):
+                  j=i+1
+                  while j<len(order) and v[order[j]]==v[order[i]]:j+=1
+                  q=(i+j-1)/2+1
+                  for k in range(i,j):r[order[k]]=q
+                  i=j
+              return r
+          def pearson(a,b):
+              ma=sum(a)/len(a);mb=sum(b)/len(b)
+              num=sum((x-ma)*(y-mb) for x,y in zip(a,b))
+              den=math.sqrt(sum((x-ma)**2 for x in a)*sum((y-mb)**2 for y in b))
+              return num/den if den else 0.0
+          def metrics(rr,col):
+              y=[float(r['official_polqa']) for r in rr];p=[float(r[col]) for r in rr]
+              e=[a-b for a,b in zip(p,y)]
+              return {'n':len(rr),'pearson':pearson(y,p),'spearman':pearson(ranks(y),ranks(p)),
+                'rmse':math.sqrt(sum(x*x for x in e)/len(e)),'mae':sum(abs(x) for x in e)/len(e),
+                'bias':sum(e)/len(e),'within_0_10':sum(abs(x)<=.10 for x in e)/len(e),
+                'within_0_30':sum(abs(x)<=.30 for x in e)/len(e),'within_0_50':sum(abs(x)<=.50 for x in e)/len(e)}
+          report={'reference':'Official ITU-T P.863 Edition 3 reference outputs','total':len(rows),
+                  'openvq_phase3':metrics(rows,'openvq_mos'),'visqol_speech':metrics(rows,'visqol_speech_mos'),
+                  'visqol_audio':metrics(rows,'visqol_audio_mos'),'by_test':{}}
+          for t in sorted(set(r['test'] for r in rows)):
+              rr=[r for r in rows if r['test']==t]
+              report['by_test'][t]={'openvq_phase3':metrics(rr,'openvq_mos'),
+                'visqol_speech':metrics(rr,'visqol_speech_mos'),'visqol_audio':metrics(rr,'visqol_audio_mos')}
+          Path('oracle-report.json').write_text(json.dumps(report,indent=2))
+          with open('oracle-scored.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=list(rows[0].keys()));w.writeheader();w.writerows(rows)
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-p863-ed3-oracle-fast
+          path: |
+            oracle-report.json
+            oracle-scored.csv
