@@ -115,6 +115,12 @@ def predict_native(model,X):
     Z=(X-mu)/sd
     return np.clip(coef[0]+Z@coef[1:],0.0,1.0)
 
+LEARNED_NATIVE_BLEND=0.20
+
+def anchored_native(learned, rows):
+    anchor=np.asarray([1.0-float(r["native"][0]) for r in rows],float)
+    return np.clip((1.0-LEARNED_NATIVE_BLEND)*anchor + LEARNED_NATIVE_BLEND*learned,0.0,1.0)
+
 def robust_hybrid(native,speech,audio,blend):
     consensus=np.median(np.vstack([native,speech,audio]),axis=0)
     return np.clip((1.0-blend)*native+blend*consensus,0.0,1.0)
@@ -131,6 +137,7 @@ def cv(rows,alpha,blend):
         tr=folds!=f;va=folds==f
         model=fit(X[tr],y[tr],ds[tr],alpha)
         pn[va]=predict_native(model,X[va])
+    pn=anchored_native(pn, rows)
     ph=robust_hybrid(pn,speech,audio,blend)
     by={}
     for name in sorted(set(ds)):
@@ -150,6 +157,7 @@ def emit_cpp(path,model):
     s="#pragma once\n#include <array>\n\nnamespace openvq::phase4_model {\n"
     s+=f'inline constexpr const char* kModelId = "{model["model_id"]}";\n'
     s+=f"inline constexpr double kExpertBlend = {model['expert_blend']:.17g};\n"
+    s+=f"inline constexpr double kLearnedNativeBlend = {model['learned_native_blend']:.17g};\n"
     s+=f"inline constexpr double kIntercept = {coef[0]:.17g};\n"
     s+=arr("kMean",mu)+arr("kScale",sd)+arr("kWeights",coef[1:])
     s+="}\n"
@@ -184,19 +192,21 @@ def main():
       "basis_order":basis_names(),
       "target_mapping":{"tcd_nisqa":"(MOS-1)/4","openace":"MUSHRA/100"},
       "dataset_counts":{d:sum(r["dataset"]==d for r in rows) for d in sorted(set(ds))},
-      "selection_rule":"maximize weakest Pearson/Spearman correlation across all development domains; experts capped at 40 percent and combined by median with native prediction",
+      "selection_rule":"80 percent engineered native anchor plus 20 percent learned quadratic correction; then maximize weakest Pearson/Spearman across development domains with optional experts capped at 40 percent via median consensus",
       "selected":selected,
       "grid":grid,
       "native_model":{
         "alpha":selected["alpha"],
         "mean":mu.tolist(),"scale":sd.tolist(),"coef":coef.tolist(),
       },
+      "learned_native_blend":LEARNED_NATIVE_BLEND,
       "expert_blend":selected["expert_blend"],
       "warning":"TCD, NISQA P501 and OpenACE are all development data for this candidate. A new untouched subjective corpus is required before any generalization or POLQA-parity claim."
     }
     Path(args.out).write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
     emit_cpp(args.cpp_out,{
       "model_id":model_id,"expert_blend":selected["expert_blend"],
+      "learned_native_blend":LEARNED_NATIVE_BLEND,
       "mean":mu.tolist(),"scale":sd.tolist(),"coef":coef.tolist()
     })
     print(json.dumps({
