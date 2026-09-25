@@ -1,0 +1,30 @@
+name: polqa-result-inspect
+on:
+  push:
+    branches:
+      - validation/polqa-result-inspect
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download package
+        run: |
+          mkdir -p /tmp/p863
+          curl -L --fail --retry 30 --retry-delay 2 \
+            'https://www.itu.int/rec/dologin.asp?id=T-REC-P.863-201803-I%21%21ZIP-E&lang=e&type=items' \
+            -o /tmp/p863/x.zip
+          unzip -q /tmp/p863/x.zip -d /tmp/p863/x
+      - name: Print exact result formats and command counts
+        run: |
+          ANNEX=$(find /tmp/p863/x -type d -name Att_Attachments_Annex_A_P863 | head -1)
+          for t in 2a 5c 6c; do
+            echo "===== Test_$t.bat head ====="
+            sed -n '1,8p' "$ANNEX/Test_$t.bat"
+            echo "commands=$(grep -Eic '^ *P\.863 ' "$ANNEX/Test_$t.bat")"
+            echo "===== Test_${t}_results.txt head ====="
+            sed -n '1,12p' "$ANNEX/Results Ed. 3/Test_${t}_results.txt" | cat -A
+            echo "lines=$(grep -cve '^ *$' "$ANNEX/Results Ed. 3/Test_${t}_results.txt")"
+          done
