@@ -366,7 +366,7 @@ def main():
     # Hard engineering assertions. These do not claim subjective validity.
     if clean_mos < 4.5:
         failures.append(f"identity MOS too low: {clean_mos:.3f}")
-    if summary["delay_invariance_max_delta_from_clean"] > 0.45:
+    # Preserve the 0.45 MOS criterion while tolerating binary floating-point\n    # roundoff at the exact boundary (for example 0.4500000000000002).\n    if summary["delay_invariance_max_delta_from_clean"] > 0.45 + 1e-9:
         failures.append(
             "pure delay changes MOS by more than 0.45: "
             f"{summary['delay_invariance_max_delta_from_clean']:.3f}"
