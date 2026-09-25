@@ -23,8 +23,11 @@ def metrics(y,p):
 def grouped(rows,pred):
     groups={}
     for r in rows:
-        k=r.get("condition_id","")
-        if not k:return None
+        condition=r.get("condition_id","")
+        if not condition:return None
+        # Condition IDs may repeat across degradation families (for example
+        # in TCD-VoIP), so family is part of the condition identity.
+        k=(r.get("family",""),condition)
         groups.setdefault(k,[]).append(r)
     y=[];p=[]
     for rr in groups.values():
