@@ -347,8 +347,15 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   if (reference.samples.empty() || degraded.samples.empty()) {
     throw std::invalid_argument("empty audio");
   }
-
   const PreparedPair pair = PreparePair(reference, degraded, options);
+  return AnalyzePrepared(pair, options);
+}
+
+AnalysisResult Analyzer::AnalyzePrepared(const PreparedPair& pair,
+                                         const AnalysisOptions& options) const {
+  if (pair.sample_rate <= 0 || pair.reference.empty() || pair.degraded.empty()) {
+    throw std::invalid_argument("invalid prepared pair");
+  }
   const auto& ref = pair.reference;
   const auto& deg = pair.degraded;
   const int sr = pair.sample_rate;
@@ -467,6 +474,7 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   size_t clipped = 0;
   for (float v : deg) if (std::abs(v) >= 0.995f) ++clipped;
   out.clipping_ratio = deg.empty() ? 0.0 : static_cast<double>(clipped) / deg.size();
+  out.input_clipping_ratio = pair.degraded_input_clipping_ratio;
   if (out.clipping_ratio > 0.0005) {
     out.events.push_back({EventType::kClipping, 0.0,
                           1000.0 * deg.size() / sr,
@@ -555,6 +563,7 @@ std::string ToJson(const AnalysisResult& r) {
     << ",\"active_level_reference_db\":" << r.active_level_reference_db
     << ",\"active_level_degraded_db\":" << r.active_level_degraded_db
     << ",\"clipping_ratio\":" << r.clipping_ratio
+    << ",\"input_clipping_ratio\":" << r.input_clipping_ratio
     << ",\"missing_disturbance\":" << r.missing_disturbance
     << ",\"added_disturbance\":" << r.added_disturbance
     << ",\"bad_section_fraction\":" << r.bad_section_fraction
