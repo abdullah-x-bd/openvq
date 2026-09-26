@@ -26,6 +26,13 @@ double Rms(const std::vector<float>& x,std::size_t b,std::size_t e){
 
 double Db(double x){return 20.0*std::log10(std::max(x,1e-9));}
 
+double ClippingRatio(const std::vector<float>& x){
+  if(x.empty())return 0.0;
+  const auto n=std::count_if(x.begin(),x.end(),
+      [](float v){return std::abs(v)>=0.995f;});
+  return static_cast<double>(n)/x.size();
+}
+
 void RemoveDc(std::vector<float>* x){
   if(x->empty())return;
   const double m=std::accumulate(x->begin(),x->end(),0.0)/x->size();
@@ -72,8 +79,13 @@ std::vector<double> Envelope(const std::vector<float>& x,int sr,int hz){
   return out;
 }
 
-double Corr(const std::vector<double>& a,const std::vector<double>& b,int shift,
-            std::size_t begin,std::size_t end){
+struct CorrelationSupport {
+  double correlation = -1.0;
+  std::size_t overlap = 0;
+};
+
+CorrelationSupport Corr(const std::vector<double>& a,const std::vector<double>& b,
+                        int shift,std::size_t begin,std::size_t end){
   end=std::min(end,a.size());
   double aa=0,bb=0,ab=0;std::size_t n=0;
   for(std::size_t i=begin;i<end;++i){
@@ -82,20 +94,53 @@ double Corr(const std::vector<double>& a,const std::vector<double>& b,int shift,
     const double x=a[i],y=b[static_cast<std::size_t>(j)];
     aa+=x*x;bb+=y*y;ab+=x*y;++n;
   }
-  if(n<8||aa<kEps||bb<kEps)return -1.0;
-  return ab/std::sqrt(aa*bb);
+  if(n<8||aa<kEps||bb<kEps)return {-1.0,n};
+  return {ab/std::sqrt(aa*bb),n};
 }
 
-std::pair<int,double> BestShift(const std::vector<double>& a,
-                                const std::vector<double>& b,
-                                int lo,int hi,
-                                std::size_t begin,std::size_t end){
-  int best=0;double best_c=-2.0;
+struct ShiftScore {
+  int shift = 0;
+  double correlation = -2.0;
+  std::size_t overlap = 0;
+  double confidence = 0.0;
+};
+
+ShiftScore BestShift(const std::vector<double>& a,
+                     const std::vector<double>& b,
+                     int lo,int hi,
+                     std::size_t begin,std::size_t end){
+  constexpr double kTieTolerance=1e-8;
+  end=std::min(end,a.size());
+  std::vector<ShiftScore> candidates;
+  candidates.reserve(std::max(0,hi-lo+1));
+  ShiftScore best;
   for(int s=lo;s<=hi;++s){
-    const double c=Corr(a,b,s,begin,end);
-    if(c>best_c){best_c=c;best=s;}
+    const auto cs=Corr(a,b,s,begin,end);
+    ShiftScore cur{s,cs.correlation,cs.overlap,0.0};
+    candidates.push_back(cur);
+    const bool clearly_better=cur.correlation>best.correlation+kTieTolerance;
+    const bool tied=std::abs(cur.correlation-best.correlation)<=kTieTolerance;
+    const bool better_support=tied&&cur.overlap>best.overlap;
+    const bool safer_displacement=tied&&cur.overlap==best.overlap&&
+        std::abs(cur.shift)<std::abs(best.shift);
+    if(clearly_better||better_support||safer_displacement)best=cur;
   }
-  return {best,best_c};
+
+  double second=-2.0;
+  for(const auto& cur:candidates){
+    if(cur.shift==best.shift)continue;
+    second=std::max(second,cur.correlation);
+  }
+  const double margin=std::max(0.0,best.correlation-second);
+  const double requested=static_cast<double>(std::max<std::size_t>(1,end-begin));
+  const double support=Clamp(best.overlap/requested,0.0,1.0);
+  const double strength=Clamp((best.correlation+1.0)*0.5,0.0,1.0);
+  const double ambiguity=Clamp(margin/0.02,0.0,1.0);
+  // Ambiguous periodic peaks retain low but non-zero confidence. The selected
+  // lag still prefers the best-supported and smallest displacement among
+  // correlation-equivalent candidates.
+  best.confidence=strength*support*(0.20+0.80*ambiguity);
+  return best;
 }
 
 AlignmentMap BuildAlignment(const std::vector<float>& ref,
@@ -110,21 +155,21 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
   AlignmentMap out;
   out.sample_rate=sr;
   out.global_delay_samples=
-      static_cast<double>(global.first)*sr/env_hz;
+      static_cast<double>(global.shift)*sr/env_hz;
+  out.global_confidence=global.confidence;
 
   if(!options.enable_local_alignment||re.size()<40){
-    out.knots.push_back({0.0,out.global_delay_samples,
-                         Clamp((global.second+1.0)*0.5,0.0,1.0)});
+    out.knots.push_back({0.0,out.global_delay_samples,global.confidence});
     out.knots.push_back({static_cast<double>(ref.size()),
                          static_cast<double>(ref.size())+out.global_delay_samples,
-                         Clamp((global.second+1.0)*0.5,0.0,1.0)});
-    out.mean_confidence=Clamp((global.second+1.0)*0.5,0.0,1.0);
+                         global.confidence});
+    out.mean_confidence=global.confidence;
     return out;
   }
 
   constexpr int segments=12;
   const int radius=std::max(2,40*env_hz/1000);
-  double previous_delay_bins=global.first;
+  double previous_delay_bins=global.shift;
   std::vector<double> times,delays,conf;
   for(int seg=0;seg<segments;++seg){
     const std::size_t b=re.size()*seg/segments;
@@ -135,21 +180,21 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
     // A low-correlation region is evidence of missing/unmatched content, not a
     // license for the aligner to jump to another phoneme.
     double chosen=previous_delay_bins;
-    if(local.second>=0.15){
+    if(local.correlation>=0.15){
       const double center_s=(static_cast<double>(b+e)*0.5)/env_hz;
       const double prev_s=times.empty()?center_s:times.back();
       const double dt=std::max(0.05,center_s-prev_s);
       // Bound path slope to clock drift plus modest local jitter. This prevents
       // alignment from warping around a genuinely missing word.
       const double max_change=std::max(1.0,dt*env_hz*0.008+2.0);
-      chosen=Clamp(local.first,previous_delay_bins-max_change,
+      chosen=Clamp(local.shift,previous_delay_bins-max_change,
                    previous_delay_bins+max_change);
     }
     const double center_bin=static_cast<double>(b+e)*0.5;
     const double ref_sample=center_bin*sr/env_hz;
     const double delay_samples=chosen*sr/env_hz;
     out.knots.push_back({ref_sample,ref_sample+delay_samples,
-                         Clamp((local.second+1.0)*0.5,0.0,1.0)});
+                         local.confidence});
     times.push_back(ref_sample/sr);
     delays.push_back(delay_samples/sr);
     conf.push_back(out.knots.back().confidence);
@@ -157,8 +202,7 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
   }
 
   if(out.knots.empty()){
-    out.knots.push_back({0.0,out.global_delay_samples,
-                         Clamp((global.second+1.0)*0.5,0.0,1.0)});
+    out.knots.push_back({0.0,out.global_delay_samples,global.confidence});
   }
   if(out.knots.front().reference_sample>0.0){
     const double d=out.knots.front().degraded_sample-
@@ -183,8 +227,9 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
     }
     if(den>kEps)out.clock_drift_ppm=Clamp(num/den*1e6,-5000.0,5000.0);
   }
-  out.mean_confidence=conf.empty()?Clamp((global.second+1.0)*0.5,0.0,1.0):
+  const double local_mean=conf.empty()?global.confidence:
       std::accumulate(conf.begin(),conf.end(),0.0)/conf.size();
+  out.mean_confidence=Clamp(0.35*global.confidence+0.65*local_mean,0.0,1.0);
   return out;
 }
 
@@ -226,6 +271,8 @@ PreparedPair PreparePair(const AudioBuffer& reference,
     throw std::invalid_argument("empty audio");
   PreparedPair out;
   out.sample_rate=options.target_sample_rate;
+  out.reference_input_clipping_ratio=ClippingRatio(reference.samples);
+  out.degraded_input_clipping_ratio=ClippingRatio(degraded.samples);
   out.reference=ResampleSinc(reference.samples,reference.sample_rate,out.sample_rate);
   out.degraded=ResampleSinc(degraded.samples,degraded.sample_rate,out.sample_rate);
   RemoveDc(&out.reference);RemoveDc(&out.degraded);
