@@ -1,0 +1,57 @@
+name: validation-phase6a-foundation
+
+on:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/validation-phase6a-foundation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Release with active tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Prove controlled failure harness is active
+        run: |
+          set +e
+          ./build/openvq_require_failure >/tmp/require.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/require.out
+          test "$rc" -ne 0
+          grep -q "requirement failed" /tmp/require.out
+      - name: Freeze frontend contract evidence
+        run: |
+          mkdir -p validation/phase6
+          python - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          files=["include/openvq/preprocessing.h","src/preprocessing.cpp","include/openvq/openvq.h",
+                 "src/openvq.cpp","include/openvq/advanced.h","src/advanced.cpp","tests/test_preprocessing.cpp"]
+          def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          out={"frontend_id":"openvq-frontend-phase6a-2026-09-26-v1",
+               "source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+               "files":{p:sha(p) for p in files},
+               "release_tests":"all CTest targets active; controlled failing Require reaches nonzero status",
+               "delay_contract_ms":[40,120,250,500],"unambiguous_delay_tolerance_ms":5}
+          Path("validation/phase6/frontend-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase6a-foundation
+          path: validation/phase6/frontend-freeze.json
