@@ -532,8 +532,15 @@ ResidualDiagnostics AnalyzeResidualStructure(
           Clamp((0.55 - change_ratio) / 0.55, 0.0, 1.0));
     }
   }
+  // The global-path repeat detector is intentionally event-oriented.
+  // PLC repeats can occupy much less than 2% of a call, so percentile pooling
+  // can erase a genuine short freeze. Use peak severity for this narrowly
+  // defined exact-repeat signal, while retaining robust pooling for the
+  // broader aligned detector above.
   const double global_freeze_component =
-      global_freezes.empty() ? 0.0 : Quantile(global_freezes, 0.98);
+      global_freezes.empty()
+          ? 0.0
+          : *std::max_element(global_freezes.begin(), global_freezes.end());
   const double freeze_component =
       std::max(aligned_freeze_component, global_freeze_component);
 
