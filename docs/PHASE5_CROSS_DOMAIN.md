@@ -1,66 +1,129 @@
 # Phase 5 cross-domain redesign
 
-Phase 5 begins because the frozen Phase 4 v3 candidate failed its untouched external tests.
+**Status: historical development milestone, superseded by Phase 5.1.**
 
-## Frozen Phase 4 external results
+Phase 5 began because the frozen Phase 4 candidate failed untouched cross-domain validation.
 
-NISQA TEST_FOR, native Phase 4, n=240:
+Its question was:
+
+> Can the existing 19 native OpenVQ features generalize if they are fitted across five known subjective domains with corpus-balanced weighting and worst-domain selection?
+
+## Phase 4 evidence entering Phase 5
+
+NISQA TEST_FOR, n = 240:
 
 - Pearson 0.6148
 - Spearman 0.5892
 - RMSE 0.7503 MOS
-- MAE 0.5878 MOS
-- bias +0.1005 MOS
 
-The RMSE criterion passed, but the predeclared Pearson and Spearman thresholds did not.
-
-TMHINT-QI version II full-reference subset, n=1455:
+TMHINT historical Phase 4 correlation diagnostic, n = 1,455:
 
 - Pearson 0.2116
 - Spearman 0.2580
-- RMSE 2.1336 MOS
-- MAE 2.0072 MOS
-- bias -1.9891 MOS
 
-This is a major cross-domain failure, especially for noisy and enhancement-system speech.
+Phase 5.1 later established that the TMHINT archive was the original TMHINT-QI release and that its 1-to-5 listener scores had been unnecessarily transformed in the Phase 4/5 workflow.
 
-Phase 4 v3 is permanently retained with those results. It will not be retuned and described as having passed those holdouts.
+Therefore the old TMHINT Pearson/Spearman remain useful, but the old absolute-error figures are not corrected metrics.
 
-## Phase 5 development data
+## Phase 5 v1 design
 
-Phase 5 may use the following as development evidence:
+Development evidence:
 
-- TCD-VoIP
-- NISQA TEST P501
-- EARS-EMO-OpenACE
+- TCD
+- NISQA P501
 - NISQA TEST_FOR
-- TMHINT-QI version II test full-reference subset
-- the deterministic engineering matrix
+- OpenACE
+- TMHINT
 
-NISQA TEST_FOR and TMHINT ceased to be untouched when their Phase 4 results were observed.
+Primary score:
 
-## Primary Phase 5 direction
+native-only.
 
-The primary Phase 5 score is native-only.
+Candidate families:
 
-The first Phase 5 trainer compares:
+- regularized linear;
+- regularized degree-two.
 
-- a strongly regularized linear native model
-- a strongly regularized degree-two native model
+Constraints retained:
 
-Both must satisfy the same engineering inequalities used for Phase 4:
+- high identity quality;
+- sample-rate identity quality;
+- pure-delay tolerance;
+- monotonic behavior under deterministic impairment families.
 
-- high identity quality
-- sample-rate identity quality
-- pure-delay tolerance
-- non-increasing quality under worsening dropout, noise, low-pass restriction, clipping, attenuation, clock drift, time scaling, and mixed impairments
+Each subjective corpus received equal total fit weight.
 
-Each subjective domain receives equal total fitting weight.
+Selection maximized the weakest Pearson/Spearman value across the five development corpora.
 
-Model selection maximizes the weakest grouped cross-validated Pearson or Spearman correlation across all five subjective domains. This prevents a strong result on one corpus from hiding collapse on another.
+## Phase 5 v1 result
 
-## Validation rule
+Selected model:
 
-Phase 5 cannot be validated on TEST_FOR or TMHINT.
+`phase5-native-crossdomain-2026-09-26-v1`
 
-A new model ID and a new untouched subjective corpus are required before any Phase 5 generalization claim. The current preferred reserve is the simulated, reference-capable portion of the ICASSP 2026 URGENT Track 1 blind subjective test. The exact pairing and subset protocol must be frozen before any Phase 5 score is computed.
+Basis:
+
+`poly2`
+
+Alpha:
+
+`10.0`
+
+Grouped development results:
+
+| Corpus | Pearson | Spearman |
+| --- | ---: | ---: |
+| NISQA P501 | 0.6800 | 0.6812 |
+| NISQA TEST_FOR | 0.5921 | 0.5715 |
+| OpenACE | 0.7505 | 0.7838 |
+| TCD | 0.6674 | 0.6748 |
+| TMHINT | 0.3608 | 0.3510 |
+
+Worst correlation:
+
+`0.3510`
+
+Mean correlation:
+
+`0.6113`
+
+The cross-domain retraining improved the failure picture but did not make the 19-feature mapping robust.
+
+## Why Phase 5 v1 was not enough
+
+Two conclusions drove Phase 5.1.
+
+First, the weakest-domain result showed that simply changing coefficients on the same feature representation was not sufficient.
+
+Second, the later Phase 5.1 audit found evidence-chain defects:
+
+- the historical independent pure-delay gate had not actually executed;
+- TMHINT release identity and score scale had been misinterpreted.
+
+Because Phase 5 v1 used transformed TMHINT targets during fitting, it is retained as a diagnostic baseline rather than a release candidate.
+
+## What Phase 5.1 changed
+
+Phase 5.1 repaired:
+
+- evidence provenance;
+- shared preprocessing;
+- alignment;
+- active-speech coverage;
+- rich temporal/tail representation;
+- engineering validation;
+- grouped and leave-corpus-out evaluation.
+
+See:
+
+- `docs/PHASE5_1.md`
+- `docs/PHASE5_1_RESULTS.md`
+- `docs/PHASE5_1_EVIDENCE_ERRATUM.md`
+
+## Validation status
+
+NISQA TEST_FOR and TMHINT are development evidence after earlier unblinding.
+
+They cannot validate Phase 6.
+
+URGENT 2026 remains untouched at the end of Phase 5.1 and is the preferred future external source once a Phase 6 candidate and protocol are frozen.

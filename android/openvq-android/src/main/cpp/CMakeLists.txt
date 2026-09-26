@@ -4,6 +4,7 @@ get_filename_component(OPENVQ_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../" A
 add_library(openvq_android SHARED
     openvq_jni.cpp
     "${OPENVQ_ROOT}/src/openvq.cpp"
+    "${OPENVQ_ROOT}/src/preprocessing.cpp"
     "${OPENVQ_ROOT}/src/calibration.cpp"
     "${OPENVQ_ROOT}/src/advanced.cpp"
     "${OPENVQ_ROOT}/src/hybrid.cpp"

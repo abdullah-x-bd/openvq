@@ -1,4 +1,5 @@
 #include "openvq/advanced.h"
+#include "openvq/preprocessing.h"
 #include "openvq/hybrid.h"
 #include "openvq/phase4.h"
 
@@ -157,7 +158,7 @@ ResolutionStats CompareResolution(
     const std::vector<float>& r,
     const std::vector<float>& d,
     int sr,
-    long delay,
+    const AlignmentMap& alignment,
     int frame_ms,
     int hop_ms) {
   const size_t frame = static_cast<size_t>(frame_ms * sr / 1000);
@@ -171,8 +172,10 @@ ResolutionStats CompareResolution(
 
   std::vector<double> sims, asym, tilts;
   for (size_t rb = 0; rb + frame <= r.size(); rb += hop) {
-    const long db = static_cast<long>(rb) + delay;
-    if (db < 0 || static_cast<size_t>(db) + frame > d.size() ||
+    const long db = static_cast<long>(
+        std::llround(alignment.MapReferenceSample(rb)));
+    if (!alignment.Covers(rb, frame, d.size()) ||
+        db < 0 || static_cast<size_t>(db) + frame > d.size() ||
         Rms(r, rb, rb + frame) < vad) {
       continue;
     }
@@ -224,18 +227,31 @@ ResolutionStats CompareResolution(
   return s;
 }
 
-std::vector<double> Envelope10ms(
-    const std::vector<float>& x, int sr, long offset, size_t nref) {
+std::vector<double> Envelope10msReference(
+    const std::vector<float>& x, int sr) {
   const size_t hop = static_cast<size_t>(sr / 100);
   std::vector<double> out;
+  for (size_t b = 0; b + hop <= x.size(); b += hop) {
+    out.push_back(Rms(x, b, b + hop));
+  }
+  return out;
+}
 
-  for (size_t rb = 0; rb + hop <= nref; rb += hop) {
-    const long b = static_cast<long>(rb) + offset;
-    if (b < 0 || static_cast<size_t>(b) + hop > x.size()) {
+std::vector<double> Envelope10msAlignedDegraded(
+    const PreparedPair& pair) {
+  const size_t hop = static_cast<size_t>(pair.sample_rate / 100);
+  std::vector<double> out;
+  for (size_t rb = 0; rb + hop <= pair.reference.size(); rb += hop) {
+    if (!pair.alignment.Covers(rb, hop, pair.degraded.size())) {
       out.push_back(0.0);
-    } else {
-      out.push_back(Rms(x, static_cast<size_t>(b), static_cast<size_t>(b) + hop));
+      continue;
     }
+    double s = 0.0;
+    for (size_t i = 0; i < hop; ++i) {
+      const double v = SampleAlignedDegraded(pair, rb + i);
+      s += v * v;
+    }
+    out.push_back(std::sqrt(s / std::max<size_t>(1, hop)));
   }
   return out;
 }
@@ -269,17 +285,18 @@ struct ResidualDiagnostics {
 };
 
 void BuildAlignedSignals(
-    const std::vector<float>& r,
-    const std::vector<float>& d,
-    long delay,
+    const PreparedPair& pair,
     std::vector<float>* ar,
     std::vector<float>* ad) {
-  size_t rb = delay < 0 ? static_cast<size_t>(-delay) : 0;
-  size_t db = delay > 0 ? static_cast<size_t>(delay) : 0;
-  if (rb >= r.size() || db >= d.size()) return;
-  const size_t n = std::min(r.size() - rb, d.size() - db);
-  ar->assign(r.begin() + rb, r.begin() + rb + n);
-  ad->assign(d.begin() + db, d.begin() + db + n);
+  ar->clear();
+  ad->clear();
+  ar->reserve(pair.reference.size());
+  ad->reserve(pair.reference.size());
+  for (size_t i = 0; i < pair.reference.size(); ++i) {
+    if (!pair.alignment.Covers(i, 1, pair.degraded.size())) continue;
+    ar->push_back(pair.reference[i]);
+    ad->push_back(SampleAlignedDegraded(pair, i));
+  }
 }
 
 std::vector<double> BlockAverage(
@@ -337,13 +354,13 @@ double CenteredCorrelationAtLag(
 }
 
 ResidualDiagnostics AnalyzeResidualStructure(
-    const std::vector<float>& r,
-    const std::vector<float>& d,
-    int sr,
-    long delay) {
+    const PreparedPair& pair) {
+  const auto& r = pair.reference;
+  const auto& d = pair.degraded;
+  const int sr = pair.sample_rate;
   ResidualDiagnostics out;
   std::vector<float> ar, ad;
-  BuildAlignedSignals(r, d, delay, &ar, &ad);
+  BuildAlignedSignals(pair, &ar, &ad);
   if (ar.size() < static_cast<size_t>(sr / 2)) return out;
 
   // Direct-path least-squares subtraction. Echo is then sought in the residual,
@@ -498,21 +515,19 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   AdvancedAnalysisResult out;
   out.base = Analyzer().Analyze(reference, degraded, options);
 
-  const int sr = 48000;
-  auto r = ResampleLinear(reference, sr);
-  auto d = ResampleLinear(degraded, sr);
+  const PreparedPair pair = PreparePair(reference, degraded, options);
+  const int sr = pair.sample_rate;
+  const auto& r = pair.reference;
+  const auto& d = pair.degraded;
   if (r.empty() || d.empty()) {
     out.mos = out.base.mos;
     out.confidence = out.base.confidence;
     return out;
   }
 
-  const long delay =
-      static_cast<long>(std::llround(out.base.delay_ms * sr / 1000.0));
-
-  const auto s20 = CompareResolution(r, d, sr, delay, 20, 10);
-  const auto s80 = CompareResolution(r, d, sr, delay, 80, 40);
-  const auto s200 = CompareResolution(r, d, sr, delay, 200, 100);
+  const auto s20 = CompareResolution(r, d, sr, pair.alignment, 20, 10);
+  const auto s80 = CompareResolution(r, d, sr, pair.alignment, 80, 40);
+  const auto s200 = CompareResolution(r, d, sr, pair.alignment, 200, 100);
   const int count =
       (s20.frames > 0) + (s80.frames > 0) + (s200.frames > 0);
 
@@ -538,23 +553,50 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   out.advanced.bad_interval_severity =
       std::max({s20.bad, s80.bad, s200.bad});
 
-  auto er = Envelope10ms(r, sr, 0, r.size());
-  auto ed = Envelope10ms(d, sr, delay, r.size());
+  auto er = Envelope10msReference(r, sr);
+  auto ed = Envelope10msAlignedDegraded(pair);
   out.advanced.temporal_envelope_similarity =
       Clamp((Pearson(er, ed) + 1.0) * 0.5, 0.0, 1.0);
   out.advanced.modulation_similarity = ModulationSimilarity(er, ed);
 
-  const double rr = Rms(r, 0, r.size());
-  const double dr =
-      Rms(d, delay > 0 ? static_cast<size_t>(delay) : 0, d.size());
-  out.advanced.active_level_delta_db =
-      std::abs(20 * std::log10((dr + 1e-9) / (rr + 1e-9)));
+  const auto active_levels = MeasureMatchedActiveLevel(
+      pair, options.frame_ms, options.hop_ms, options.vad_relative_db);
+  out.advanced.active_level_delta_db = active_levels.delta_db;
+  out.advanced.alignment_coverage = active_levels.active_coverage_fraction;
+  out.advanced.alignment_confidence = pair.alignment.mean_confidence;
 
-  const auto residual =
-      AnalyzeResidualStructure(r, d, sr, delay);
+  const auto residual = AnalyzeResidualStructure(pair);
   out.advanced.echo_score = residual.echo;
   out.advanced.choppiness_score = residual.choppiness;
   out.advanced.residual_intrusion = residual.intrusion;
+
+  std::vector<double> frame_sims;
+  std::vector<double> frame_disc;
+  frame_sims.reserve(out.base.frames.size());
+  frame_disc.reserve(out.base.frames.size());
+  double longest_bad_ms = 0.0;
+  double current_bad_ms = 0.0;
+  int severe_frames = 0;
+  for (const auto& fq : out.base.frames) {
+    frame_sims.push_back(fq.similarity);
+    frame_disc.push_back(fq.discontinuity);
+    const bool bad = fq.discontinuity > 0.45 || fq.similarity < 0.55;
+    if (bad) {
+      current_bad_ms += options.hop_ms;
+      longest_bad_ms = std::max(longest_bad_ms, current_bad_ms);
+      ++severe_frames;
+    } else {
+      current_bad_ms = 0.0;
+    }
+  }
+  out.advanced.similarity_p10 = Quantile(frame_sims, 0.10);
+  out.advanced.similarity_p50 = Quantile(frame_sims, 0.50);
+  out.advanced.discontinuity_p90 = Quantile(frame_disc, 0.90);
+  out.advanced.longest_bad_interval_ms = longest_bad_ms;
+  out.advanced.severe_frame_fraction =
+      out.base.frames.empty()
+          ? 0.0
+          : static_cast<double>(severe_frames) / out.base.frames.size();
 
   const auto& c = options.calibration;
   const double base_penalty = Clamp(5.0 - out.base.mos, 0.0, 4.0);
@@ -675,6 +717,13 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
     << ",\"echo_score\":" << r.advanced.echo_score
     << ",\"choppiness_score\":" << r.advanced.choppiness_score
     << ",\"residual_intrusion\":" << r.advanced.residual_intrusion
+    << ",\"similarity_p10\":" << r.advanced.similarity_p10
+    << ",\"similarity_p50\":" << r.advanced.similarity_p50
+    << ",\"discontinuity_p90\":" << r.advanced.discontinuity_p90
+    << ",\"longest_bad_interval_ms\":" << r.advanced.longest_bad_interval_ms
+    << ",\"severe_frame_fraction\":" << r.advanced.severe_frame_fraction
+    << ",\"alignment_coverage\":" << r.advanced.alignment_coverage
+    << ",\"alignment_confidence\":" << r.advanced.alignment_confidence
     << "}}";
   return o.str();
 }
