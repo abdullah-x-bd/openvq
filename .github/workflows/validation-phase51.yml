@@ -1,0 +1,219 @@
+name: validation-phase51
+
+on:
+  push:
+    branches:
+      - "validation/phase5.1-measurement-repair"
+    paths:
+      - "src/**"
+      - "include/**"
+      - "tests/**"
+      - "validation/phase51_*.py"
+      - "validation/tmhint_prepare.py"
+      - "validation/engineering_matrix.py"
+      - "validation/engineering_matrix_real.py"
+      - "validation/manifest_pcm16.py"
+      - "docs/PHASE5_1_*.md"
+      - ".github/workflows/validation-phase51.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase51:
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy scipy scikit-learn soundfile huggingface_hub openpyxl remotezip
+
+      - name: Build and test repaired native analyzer
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Download and prepare TCD-VoIP
+        run: |
+          mkdir -p validation/phase51/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TCD-VOIP.zip --local-dir validation/phase51/tcd
+          unzip -q validation/phase51/tcd/TCD-VOIP.zip \
+            -d validation/phase51/tcd/extracted
+          python validation/tcd_prepare.py \
+            validation/phase51/tcd/extracted validation/phase51/tcd/manifests
+
+      - name: Extract NISQA P501 and TEST_FOR
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          roots={
+            "NISQA_TEST_P501/":Path("validation/phase51/nisqa-p501"),
+            "NISQA_TEST_FOR/":Path("validation/phase51/nisqa-for"),
+          }
+          for p in roots.values():p.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              for token,out in roots.items():
+                  matches=[n for n in names if token in n and not n.endswith("/")]
+                  print(token,len(matches),flush=True)
+                  if not matches:raise SystemExit(f"no matches for {token}")
+                  for n in matches:z.extract(n,path=out)
+          PY
+          python validation/nisqa_holdout_prepare.py \
+            validation/phase51/nisqa-p501 validation/phase51/p501-manifest.csv \
+            --family NISQA_TEST_P501 --expected 240
+          python validation/nisqa_holdout_prepare.py \
+            validation/phase51/nisqa-for validation/phase51/test-for-manifest.csv \
+            --family NISQA_TEST_FOR --expected 240
+
+      - name: Download and prepare OpenACE
+        run: |
+          mkdir -p validation/phase51/openace
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import HfApi,snapshot_download
+          repo="mcernak/EARS-EMO-OpenACE"
+          info=HfApi().dataset_info(repo)
+          Path("validation/phase51/openace/revision.txt").write_text(info.sha+"\n")
+          snapshot_download(repo_id=repo,repo_type="dataset",revision=info.sha,
+              local_dir="validation/phase51/openace/data")
+          print("OpenACE",info.sha)
+          PY
+          python validation/openace_prepare.py \
+            validation/phase51/openace/data validation/phase51/openace-manifest-raw.csv
+          python validation/manifest_pcm16.py \
+            validation/phase51/openace-manifest-raw.csv \
+            validation/phase51/openace-manifest.csv \
+            validation/phase51/openace-pcm16
+
+      - name: Download and identify TMHINT
+        run: |
+          mkdir -p validation/phase51/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TMHINTQI.zip --local-dir validation/phase51/tmhint
+          unzip -q validation/phase51/tmhint/TMHINTQI.zip \
+            -d validation/phase51/tmhint/extracted
+          python validation/tmhint_prepare.py \
+            validation/phase51/tmhint/extracted \
+            validation/phase51/tmhint-manifest.csv \
+            --archive validation/phase51/tmhint/TMHINTQI.zip \
+            --provenance-out validation/phase51/tmhint-provenance.json
+
+      - name: Extract repaired legacy and rich features
+        run: |
+          python validation/phase51_extract_features.py \
+            validation/phase51/tcd/manifests/all.csv validation/phase51/tcd-features.csv \
+            --dataset tcd --target-field human_mos --target-scale mos1to5 \
+            --group-field condition_id --system-field family --cli ./build/openvq_cli
+          python validation/phase51_extract_features.py \
+            validation/phase51/p501-manifest.csv validation/phase51/p501-features.csv \
+            --dataset nisqa_p501 --target-field human_mos --target-scale mos1to5 \
+            --group-field condition_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase51_extract_features.py \
+            validation/phase51/test-for-manifest.csv validation/phase51/test-for-features.csv \
+            --dataset nisqa_test_for --target-field human_mos --target-scale mos1to5 \
+            --group-field condition_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase51_extract_features.py \
+            validation/phase51/openace-manifest.csv validation/phase51/openace-features.csv \
+            --dataset openace --target-field distorted_mushra_rating --target-scale mushra100 \
+            --group-field speaker --system-field codec --cli ./build/openvq_cli
+          python validation/phase51_extract_features.py \
+            validation/phase51/tmhint-manifest.csv validation/phase51/tmhint-features.csv \
+            --dataset tmhint --target-field human_mos --target-scale mos1to5 \
+            --group-field group_id --system-field condition_id --cli ./build/openvq_cli
+
+      - name: Synthetic engineering matrix with repaired independent delay gate
+        id: synthetic
+        continue-on-error: true
+        run: |
+          python validation/engineering_matrix.py \
+            --cli ./build/openvq_cli --fuzz 80 \
+            --out validation/phase51/engineering-synthetic.json
+          python validation/phase51_engineering_features.py \
+            validation/phase51/engineering-synthetic.json \
+            validation/phase51/engineering-features.csv
+
+      - name: Ensure engineering features exist after diagnostic failure
+        if: always()
+        run: |
+          if [ ! -f validation/phase51/engineering-features.csv ] && \
+             [ -f validation/phase51/engineering-synthetic.json ]; then
+            python validation/phase51_engineering_features.py \
+              validation/phase51/engineering-synthetic.json \
+              validation/phase51/engineering-features.csv
+          fi
+
+      - name: Locked real-speech engineering suite
+        id: realeng
+        continue-on-error: true
+        run: |
+          python validation/engineering_matrix_real.py \
+            validation/phase51/tcd/manifests/all.csv \
+            --cli ./build/openvq_cli \
+            --out validation/phase51/engineering-real.json \
+            --references 6
+
+      - name: Fixed-evidence ablations and generalization tests
+        run: |
+          test -f validation/phase51/engineering-features.csv
+          python validation/phase51_evaluate.py \
+            --dataset tcd=validation/phase51/tcd-features.csv \
+            --dataset nisqa_p501=validation/phase51/p501-features.csv \
+            --dataset nisqa_test_for=validation/phase51/test-for-features.csv \
+            --dataset openace=validation/phase51/openace-features.csv \
+            --dataset tmhint=validation/phase51/tmhint-features.csv \
+            --engineering validation/phase51/engineering-features.csv \
+            --out validation/phase51/phase51-report.json \
+            --cpp-out validation/phase51/phase51_model.inc
+
+      - name: Record provenance and schema hashes
+        if: always()
+        run: |
+          {
+            echo "source_commit=$(git rev-parse HEAD)"
+            sha256sum \
+              validation/phase51_feature_schema.py \
+              validation/phase51_extract_features.py \
+              validation/phase51_evaluate.py \
+              validation/tmhint_prepare.py \
+              validation/engineering_matrix.py \
+              validation/engineering_matrix_real.py
+            find validation/phase51 -maxdepth 2 -type f \
+              \( -name '*manifest*.csv' -o -name '*features.csv' -o -name '*provenance.json' \) \
+              -print0 | sort -z | xargs -0 sha256sum
+          } | tee validation/phase51/provenance.sha256
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase51
+          path: |
+            validation/phase51/phase51-report.json
+            validation/phase51/phase51_model.inc
+            validation/phase51/engineering-synthetic.json
+            validation/phase51/engineering-real.json
+            validation/phase51/tmhint-provenance.json
+            validation/phase51/provenance.sha256
+            validation/phase51/*-features.csv
+            validation/phase51/*-manifest.csv
+            validation/phase51/tcd/manifests/*.csv
+            validation/phase51/tcd/manifests/*.json
+            validation/phase51/openace/revision.txt
+
+      - name: Enforce Phase 5.1 engineering exit gates
+        if: always()
+        run: |
+          test "${{ steps.synthetic.outcome }}" = "success"
+          test "${{ steps.realeng.outcome }}" = "success"
