@@ -170,7 +170,17 @@ def fit(rows,mode,seed,device,max_epochs=100):
         else:
             bad+=1
             if bad>=12:break
-    model.load_state_dict(best);return model,{"best_epoch":best_epoch,"parameters":n}
+    # Refit from scratch on every allowed row for the selected epoch count.
+    # The validation groups select training duration but are not discarded from
+    # the final outer-fold fit.
+    seed_all(seed)
+    final=Model(mode,gd).to(device)
+    opt=torch.optim.AdamW(final.parameters(),lr=1e-3,weight_decay=1e-4)
+    wr=weights(rows);wm={id(r):float(w) for r,w in zip(rows,wr)}
+    loader=DataLoader(SeqDataset(rows),batch_size=16,shuffle=True,collate_fn=collate)
+    for _ in range(best_epoch):
+        run_epoch(final,loader,opt,device,wm)
+    return final,{"best_epoch":best_epoch,"parameters":n}
 def evaluate_mode(rows,mode,device):
     by_held={};all_pred=[];all_y=[];all_ds=[]
     for held in sorted(set(r["dataset"] for r in rows)):
