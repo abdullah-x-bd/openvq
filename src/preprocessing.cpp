@@ -143,6 +143,38 @@ ShiftScore BestShift(const std::vector<double>& a,
   return best;
 }
 
+struct DirectMatch {
+  double correlation = 0.0;
+  double normalized_error = 1.0;
+  std::size_t samples = 0;
+};
+
+DirectMatch DirectMatchAtDelay(const std::vector<float>& ref,
+                               const std::vector<float>& deg,
+                               long delay_samples) {
+  double rr=0.0,dd=0.0,rd=0.0;
+  std::size_t n=0;
+  for(std::size_t i=0;i<ref.size();++i){
+    const long j=static_cast<long>(i)+delay_samples;
+    if(j<0||j>=static_cast<long>(deg.size()))continue;
+    const double r=ref[i],d=deg[static_cast<std::size_t>(j)];
+    rr+=r*r;dd+=d*d;rd+=r*d;++n;
+  }
+  DirectMatch out;out.samples=n;
+  if(n<64||rr<kEps||dd<kEps)return out;
+  out.correlation=Clamp(rd/std::sqrt(rr*dd),-1.0,1.0);
+  const double gain=rd/rr;
+  double ee=0.0;
+  for(std::size_t i=0;i<ref.size();++i){
+    const long j=static_cast<long>(i)+delay_samples;
+    if(j<0||j>=static_cast<long>(deg.size()))continue;
+    const double e=deg[static_cast<std::size_t>(j)]-gain*ref[i];
+    ee+=e*e;
+  }
+  out.normalized_error=std::sqrt(ee/(dd+kEps));
+  return out;
+}
+
 AlignmentMap BuildAlignment(const std::vector<float>& ref,
                             const std::vector<float>& deg,
                             int sr,const AnalysisOptions& options){
@@ -158,7 +190,21 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
       static_cast<double>(global.shift)*sr/env_hz;
   out.global_confidence=global.confidence;
 
-  if(!options.enable_local_alignment||re.size()<40){
+  // If the globally shifted waveforms already agree essentially sample for
+  // sample, the remaining difference is transport timing rather than local
+  // speech deformation. Do not let a flexible local path warp an already
+  // correct alignment into neighbouring phonemes and manufacture residual
+  // artifacts. The thresholds are deliberately strict so noisy, coded, echoed,
+  // time-scaled, or genuinely locally distorted material still uses local
+  // alignment.
+  const auto direct=DirectMatchAtDelay(
+      ref,deg,static_cast<long>(std::llround(out.global_delay_samples)));
+  const bool transport_only=
+      direct.samples>=static_cast<std::size_t>(std::max(64,sr/4)) &&
+      direct.correlation>=0.9995 &&
+      direct.normalized_error<=0.02;
+
+  if(transport_only||!options.enable_local_alignment||re.size()<40){
     out.knots.push_back({0.0,out.global_delay_samples,global.confidence});
     out.knots.push_back({static_cast<double>(ref.size()),
                          static_cast<double>(ref.size())+out.global_delay_samples,
