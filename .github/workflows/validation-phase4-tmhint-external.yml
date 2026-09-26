@@ -81,6 +81,27 @@ jobs:
                   meta[stem]=r
 
           clean_tokens={"","none","clean","null","na","n/a"}
+
+          # The archive prefixes clean filenames too. Pair using the dataset's
+          # own utterance ID: exactly one clean test row with the same 'uttr'.
+          clean_by_uttr={}
+          clean_collisions=defaultdict(list)
+          for clean_stem,r in meta.items():
+              method=(r.get("method") or "").strip()
+              if method.lower() not in clean_tokens:
+                  continue
+              uttr=(r.get("uttr") or "").strip()
+              if not uttr:
+                  continue
+              clean_collisions[uttr].append(clean_stem)
+          for uttr,stems in clean_collisions.items():
+              if len(stems)==1:
+                  clean_by_uttr[uttr]=by_stem[stems[0]]
+
+          print("unique clean references by uttr",len(clean_by_uttr),flush=True)
+          print("ambiguous clean utterance ids",
+                sum(1 for v in clean_collisions.values() if len(v)!=1),flush=True)
+
           out=[]
           unresolved=[]
           for stem,scores in sorted(ratings.items()):
@@ -89,19 +110,8 @@ jobs:
               if method.lower() in clean_tokens:
                   continue
 
-              candidates=[]
               uttr=(r.get("uttr") or "").strip()
-              if uttr:
-                  candidates.extend([uttr,Path(uttr).stem])
-              pos=stem.find("TMHINT_")
-              if pos>=0:
-                  candidates.append(stem[pos:])
-
-              ref=None
-              for cand in candidates:
-                  if cand in by_stem and by_stem[cand] != by_stem[stem]:
-                      ref=by_stem[cand]
-                      break
+              ref=clean_by_uttr.get(uttr)
               if ref is None:
                   unresolved.append({"file":stem,"method":method,"uttr":uttr})
                   continue
