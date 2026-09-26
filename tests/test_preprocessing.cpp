@@ -23,6 +23,20 @@ openvq::AudioBuffer MakeSpeechLike(int sr, double seconds) {
   return a;
 }
 
+openvq::AudioBuffer MakePeriodicIdentity(int sr = 48000, double seconds = 4.0) {
+  openvq::AudioBuffer a;
+  a.sample_rate = sr;
+  a.samples.resize(static_cast<std::size_t>(sr * seconds));
+  for (std::size_t i = 0; i < a.samples.size(); ++i) {
+    const double t = static_cast<double>(i) / sr;
+    a.samples[i] = static_cast<float>(
+        0.25 * std::sin(2 * M_PI * 190 * t) +
+        0.12 * std::sin(2 * M_PI * 900 * t) +
+        0.06 * std::sin(2 * M_PI * 4200 * t));
+  }
+  return a;
+}
+
 openvq::AudioBuffer Delay(const openvq::AudioBuffer& a, int delay_ms) {
   openvq::AudioBuffer d;
   d.sample_rate = a.sample_rate;
@@ -75,6 +89,40 @@ int main() {
       truncated_pair, options.frame_ms, options.hop_ms, options.vad_relative_db);
   Require(truncated_levels.lost_active_speech_fraction > 0.03,
           "truncation did not create explicit lost active speech");
+
+  // Regression for the Phase 5.1 audit finding: the old correlation search
+  // selected -1500 ms for this identical periodic signal.
+  {
+    const auto periodic = MakePeriodicIdentity();
+    openvq::AnalysisOptions p;
+    p.target_sample_rate = 48000;
+    p.max_delay_ms = 1500;
+    const auto identity = openvq::PreparePair(periodic, periodic, p);
+    const double identity_delay =
+        identity.alignment.global_delay_samples * 1000.0 / identity.sample_rate;
+    const auto identity_levels = openvq::MeasureMatchedActiveLevel(
+        identity, p.frame_ms, p.hop_ms, p.vad_relative_db);
+    Require(std::abs(identity_delay) <= 5.0,
+            "periodic identity selected an unsupported non-zero global delay");
+    Require(identity_levels.active_coverage_fraction > 0.99,
+            "periodic identity lost active coverage");
+    Require(identity_levels.lost_active_speech_fraction < 0.01,
+            "periodic identity created false lost speech");
+  }
+
+  // Phase 6A controlled delay contract: one 200-Hz envelope bin tolerance.
+  for (const int expected_ms : {40, 120, 250, 500}) {
+    openvq::AnalysisOptions dopt;
+    dopt.target_sample_rate = 48000;
+    dopt.max_delay_ms = 600;
+    const auto speech = MakeSpeechLike(48000, 5.5);
+    const auto delayed = Delay(speech, expected_ms);
+    const auto p = openvq::PreparePair(speech, delayed, dopt);
+    const double got_ms =
+        p.alignment.global_delay_samples * 1000.0 / p.sample_rate;
+    Require(std::abs(got_ms - expected_ms) <= 5.0,
+            "controlled delay exceeded one envelope-bin tolerance");
+  }
 
   return 0;
 }
