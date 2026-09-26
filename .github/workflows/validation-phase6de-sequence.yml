@@ -1,0 +1,323 @@
+name: validation-phase6de-sequence
+
+on:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase6_export_sequences.py"
+      - "validation/phase6_train_sequence.py"
+      - "validation/phase6_train_sequence_fold.py"
+      - "validation/phase6_aggregate_sequence.py"
+      - "validation/phase6_train_sequence_final.py"
+      - "validation/phase6_combine_features.py"
+      - "validation/phase6_verify_audio_registry.py"
+      - "validation/phase6_export_onnx.py"
+      - "validation/phase6_parity.py"
+      - "validation/phase6_make_bundle.py"
+      - "validation/phase6_engineering_pairs.py"
+      - "validation/phase6_score_engineering_onnx.py"
+      - ".github/workflows/validation-phase6de-sequence.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PHASE6B_RUN_ID: "36233995161"
+  PHASE6B_ARTIFACT: "openvq-phase6b-summary"
+
+jobs:
+  traces:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Verify frozen Phase 6A source contract
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          freeze=json.loads(Path("validation/phase6/frontend-freeze.json").read_text())
+          for p,expected in freeze["files"].items():
+              got=hashlib.sha256(Path(p).read_bytes()).hexdigest()
+              if got!=expected:
+                  raise SystemExit(f"frozen frontend drift: {p} {got} != {expected}")
+          print("verified",freeze["frontend_id"],freeze["source_commit"])
+          PY
+
+      - name: Install data dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy soundfile huggingface_hub openpyxl remotezip pyyaml
+
+      - name: Build trace-capable frozen frontend
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          test -x ./build/openvq_trace_cli
+
+      - name: Download canonical Phase 6B evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.PHASE6B_ARTIFACT }}
+          run-id: ${{ env.PHASE6B_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6/baseline
+
+      - name: Recreate TCD audio
+        run: |
+          mkdir -p validation/phase6/data/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TCD-VOIP.zip --local-dir validation/phase6/data/tcd
+          unzip -q validation/phase6/data/tcd/TCD-VOIP.zip -d validation/phase6/data/tcd/extracted
+          python validation/tcd_prepare.py \
+            validation/phase6/data/tcd/extracted validation/phase6/data/tcd/manifests
+
+      - name: Recreate NISQA P501 and TEST_FOR audio
+        run: |
+          set -e
+          success=0
+          for attempt in 1 2 3 4 5; do
+            echo "NISQA remote extraction attempt $attempt/5"
+            rm -rf validation/phase6/data/p501 validation/phase6/data/test-for
+            mkdir -p validation/phase6/data/p501 validation/phase6/data/test-for
+            if python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          roots={"NISQA_TEST_P501/":Path("validation/phase6/data/p501"),
+                 "NISQA_TEST_FOR/":Path("validation/phase6/data/test-for")}
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              for token,out in roots.items():
+                  mm=[n for n in names if token in n and not n.endswith("/")]
+                  if not mm:raise SystemExit("missing "+token)
+                  for n in mm:z.extract(n,path=out)
+          PY
+            then
+              success=1
+              break
+            fi
+            sleep $((attempt * 20))
+          done
+          test "$success" -eq 1
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/p501 \
+            validation/phase6/data/p501.csv --family NISQA_TEST_P501 --expected 240
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/test-for \
+            validation/phase6/data/test-for.csv --family NISQA_TEST_FOR --expected 240
+
+      - name: Recreate OpenACE audio
+        run: |
+          mkdir -p validation/phase6/data/openace
+          REVISION="$(cat validation/phase6/baseline/data/openace/revision.txt)"
+          hf download --repo-type dataset mcernak/EARS-EMO-OpenACE \
+            --revision "$REVISION" --local-dir validation/phase6/data/openace/raw
+          python validation/openace_prepare.py \
+            validation/phase6/data/openace/raw validation/phase6/data/openace-raw.csv
+          python validation/manifest_pcm16.py \
+            validation/phase6/data/openace-raw.csv validation/phase6/data/openace.csv \
+            validation/phase6/data/openace-pcm16
+
+      - name: Recreate pinned TMHINT audio
+        run: |
+          mkdir -p validation/phase6/data/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TMHINTQI.zip --local-dir validation/phase6/data/tmhint
+          unzip -q validation/phase6/data/tmhint/TMHINTQI.zip -d validation/phase6/data/tmhint/extracted
+          python validation/phase6_tmhint_prepare.py \
+            validation/phase6/data/tmhint/extracted validation/phase6/data/tmhint.csv \
+            --archive validation/phase6/data/tmhint/TMHINTQI.zip \
+            --exclusions validation/phase6/data/tmhint-exclusions.csv
+
+      - name: Verify every recreated waveform against Phase 6B
+        run: |
+          python validation/phase6_verify_audio_registry.py \
+            validation/phase6/baseline/canonical-manifest.csv
+
+      - name: Combine frozen rich-v3 feature evidence
+        run: |
+          python validation/phase6_combine_features.py \
+            --input validation/phase6/baseline/tcd-features-source.csv \
+            --input validation/phase6/baseline/p501-features-source.csv \
+            --input validation/phase6/baseline/test-for-features-source.csv \
+            --input validation/phase6/baseline/openace-features-source.csv \
+            --input validation/phase6/baseline/tmhint-features-source.csv \
+            --output validation/phase6/baseline/all-features-source.csv
+
+      - name: Export all Phase 6D native timelines
+        run: |
+          python validation/phase6_export_sequences.py \
+            validation/phase6/baseline/canonical-manifest.csv \
+            validation/phase6/baseline/all-features-source.csv \
+            validation/phase6/sequence-cache \
+            --trace-cli ./build/openvq_trace_cli --jobs 2
+
+      - name: Build independent learned-model engineering timelines
+        run: |
+          python validation/phase6_engineering_pairs.py \
+            validation/phase6/model-engineering/audio \
+            validation/phase6/model-engineering/manifest.csv
+          python validation/phase6_extract_features.py \
+            validation/phase6/model-engineering/manifest.csv \
+            validation/phase6/model-engineering/features.csv \
+            --dataset engineering --target-field human_mos --target-scale mos1to5 \
+            --group-field group_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase6_export_sequences.py \
+            validation/phase6/model-engineering/manifest.csv \
+            validation/phase6/model-engineering/features.csv \
+            validation/phase6/model-engineering/cache \
+            --trace-cli ./build/openvq_trace_cli --jobs 2
+
+      - name: Record Phase 6D evidence hashes
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          p=Path("validation/phase6/sequence-cache/trace-provenance.json")
+          q=Path("validation/phase6/model-engineering/cache/trace-provenance.json")
+          out={"phase6b_run":36233995161,"phase6b_artifact":10905043210,
+               "phase6b_artifact_sha256":"8d5fefb87379862acf6385d0514d1ac0088c87762612a3c05601ff978a24d32b",
+               "development_trace_provenance_sha256":sha(p),
+               "engineering_trace_provenance_sha256":sha(q)}
+          Path("validation/phase6/phase6d-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase6d-traces
+          compression-level: 1
+          path: |
+            validation/phase6/sequence-cache/
+            validation/phase6/model-engineering/cache/
+            validation/phase6/model-engineering/manifest.csv
+            validation/phase6/phase6d-freeze.json
+            validation/phase6/baseline/canonical-manifest.csv
+            validation/phase6/baseline/splits.json
+
+  sequence_loco:
+    needs: traces
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [native_temporal, learned_bands, hybrid]
+        held: [nisqa_p501, nisqa_test_for, openace, tcd, tmhint]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed training runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase6d-traces
+          path: validation/phase6
+      - name: Evaluate architecture on completely held corpus
+        run: |
+          mkdir -p validation/phase6/phase6e-folds
+          python validation/phase6_train_sequence_fold.py \
+            validation/phase6/sequence-cache/sequences.csv \
+            --mode "${{ matrix.mode }}" --held "${{ matrix.held }}" \
+            --max-epochs 80 \
+            --out "validation/phase6/phase6e-folds/${{ matrix.mode }}__${{ matrix.held }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase6e-${{ matrix.mode }}-${{ matrix.held }}
+          path: validation/phase6/phase6e-folds/*.json
+
+  select_and_package:
+    needs: sequence_loco
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed model/export runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy==2.1.3 torch==2.8.0 onnx==1.18.0 onnxruntime==1.22.1 onnxscript==0.5.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase6d-traces
+          path: validation/phase6
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase6e-*
+          merge-multiple: true
+          path: validation/phase6/phase6e-folds
+      - name: Select architecture from frozen LOCO reports
+        run: |
+          args=()
+          for f in validation/phase6/phase6e-folds/*.json; do args+=(--report "$f"); done
+          python validation/phase6_aggregate_sequence.py "${args[@]}" \
+            --out validation/phase6/phase6e-selection.json
+
+      - name: Fit deterministic full-development candidate
+        run: |
+          python validation/phase6_train_sequence_final.py \
+            validation/phase6/sequence-cache/sequences.csv \
+            --selection validation/phase6/phase6e-selection.json \
+            --outdir validation/phase6/final-candidate --max-epochs 80
+
+      - name: Export selected candidate to ONNX
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          SAMPLE="$(python -c 'import csv;print(next(csv.DictReader(open("validation/phase6/sequence-cache/sequences.csv")))["trace_path"])')"
+          python validation/phase6_export_onnx.py \
+            --mode "$MODE" --state "$STATE" --sample-trace "$SAMPLE" \
+            --output validation/phase6/final-candidate/openvq-phase6.onnx
+
+      - name: Verify PyTorch to ONNX parity
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          python validation/phase6_parity.py \
+            --mode "$MODE" --state "$STATE" \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --sequences validation/phase6/sequence-cache/sequences.csv \
+            --out validation/phase6/final-candidate/parity.json \
+            --max-samples 64 --mos-tol 0.0001
+
+      - name: Run selected learned model on independent engineering timelines
+        run: |
+          python validation/phase6_score_engineering_onnx.py \
+            validation/phase6/model-engineering/cache/sequences.csv \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --out validation/phase6/final-candidate/engineering.json
+
+      - name: Build immutable Phase 6F candidate bundle
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          python validation/phase6_make_bundle.py \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --state "$STATE" \
+            --training-report validation/phase6/phase6e-selection.json \
+            --mode "$MODE" \
+            --output validation/phase6/final-candidate/pipeline.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase6ef-candidate
+          path: |
+            validation/phase6/phase6e-selection.json
+            validation/phase6/phase6e-folds/
+            validation/phase6/final-candidate/
+            validation/phase6/phase6d-freeze.json

@@ -1,7 +1,7 @@
 #include "openvq/advanced.h"
+#include "test_support.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -23,8 +23,8 @@ int main() {
   openvq::AdvancedAnalyzer analyzer;
   auto ref = Signal(4);
   auto clean = analyzer.Analyze(ref, ref);
-  assert(clean.mos > 4.4);
-  assert(clean.advanced.multi_resolution_similarity > 0.98);
+  OPENVQ_REQUIRE(clean.mos > 4.4);
+  OPENVQ_REQUIRE(clean.advanced.multi_resolution_similarity > 0.98);
 
   // A coherent delayed copy should register as echo, unlike clean speech.
   auto echo = ref;
@@ -34,8 +34,8 @@ int main() {
         0.99f, echo.samples[i] + 0.32f * ref.samples[i - echo_delay]));
   }
   auto echo_result = analyzer.Analyze(ref, echo);
-  assert(echo_result.advanced.echo_score > clean.advanced.echo_score + 0.02);
-  assert(echo_result.mos < clean.mos);
+  OPENVQ_REQUIRE(echo_result.advanced.echo_score > clean.advanced.echo_score + 0.02);
+  OPENVQ_REQUIRE(echo_result.mos < clean.mos);
 
   // Repeated short holes should register as choppiness.
   auto choppy = ref;
@@ -45,9 +45,9 @@ int main() {
               choppy.samples.begin() + start + 960, 0.0f);
   }
   auto choppy_result = analyzer.Analyze(ref, choppy);
-  assert(choppy_result.advanced.choppiness_score >
+  OPENVQ_REQUIRE(choppy_result.advanced.choppiness_score >
          clean.advanced.choppiness_score + 0.01);
-  assert(choppy_result.mos < clean.mos);
+  OPENVQ_REQUIRE(choppy_result.mos < clean.mos);
 
   // Repeat-last-frame PLC should also be treated as choppiness even when
   // there are no zero-valued holes.
@@ -60,9 +60,13 @@ int main() {
               frozen.samples.begin() + start);
   }
   auto frozen_result = analyzer.Analyze(ref, frozen);
-  assert(frozen_result.advanced.choppiness_score >
+  std::cerr << "PLC repeat diagnostic clean_choppiness="
+            << clean.advanced.choppiness_score
+            << " frozen_choppiness="
+            << frozen_result.advanced.choppiness_score << "\n";
+  OPENVQ_REQUIRE(frozen_result.advanced.choppiness_score >
          clean.advanced.choppiness_score + 0.005);
-  assert(frozen_result.mos < clean.mos);
+  OPENVQ_REQUIRE(frozen_result.mos < clean.mos);
 
   auto bad = ref;
   std::fill(
@@ -70,8 +74,8 @@ int main() {
       bad.samples.begin() + 60000,
       0.0f);
   auto result = analyzer.Analyze(ref, bad);
-  assert(result.mos < clean.mos);
-  assert(
+  OPENVQ_REQUIRE(result.mos < clean.mos);
+  OPENVQ_REQUIRE(
       result.advanced.bad_interval_severity >
       clean.advanced.bad_interval_severity);
 
@@ -89,7 +93,7 @@ int main() {
   calibrated.calibration.advanced_choppiness_weight = 0.0;
   calibrated.calibration.advanced_residual_intrusion_weight = 0.0;
   auto bias_only = analyzer.Analyze(ref, ref, calibrated);
-  assert(std::abs(bias_only.mos - 4.0) < 1e-6);
+  OPENVQ_REQUIRE(std::abs(bias_only.mos - 4.0) < 1e-6);
 
   std::cout << "Advanced OpenVQ tests passed\n";
 }

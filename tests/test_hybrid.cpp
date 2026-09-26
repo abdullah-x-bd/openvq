@@ -1,7 +1,7 @@
 #include "openvq/hybrid.h"
+#include "test_support.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -18,8 +18,8 @@ int main() {
   f.visqol_audio=0.25548963;
   const double expected=1.6350263119881987;
   const double got=openvq::EvaluateFrozenPhase3(f);
-  assert(std::abs(got-expected)<1e-12);
+  OPENVQ_REQUIRE(std::abs(got-expected)<1e-12);
   auto worse=f; worse.echo=std::min(1.0,f.echo+0.10);
-  assert(openvq::EvaluateFrozenPhase3(worse)<=got+1e-12);
+  OPENVQ_REQUIRE(openvq::EvaluateFrozenPhase3(worse)<=got+1e-12);
   std::cout << "Frozen Phase-3 hybrid tests passed\n";
 }

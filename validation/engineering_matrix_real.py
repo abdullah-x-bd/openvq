@@ -115,6 +115,16 @@ def main():
                     "confidence":float(obj["confidence"]),
                     "lost_active_speech_fraction":float(obj.get("lost_active_speech_fraction",0)),
                     "alignment_confidence":float(obj.get("alignment_confidence",0)),
+                    "delay_ms":float(obj.get("delay_ms",0)),
+                    "missing_disturbance":float(obj.get("missing_disturbance",0)),
+                    "bad_section_fraction":float(obj.get("bad_section_fraction",0)),
+                    "multi_resolution_similarity":float(obj.get("advanced",{}).get("multi_resolution_similarity",0)),
+                    "temporal_envelope_similarity":float(obj.get("advanced",{}).get("temporal_envelope_similarity",0)),
+                    "modulation_similarity":float(obj.get("advanced",{}).get("modulation_similarity",0)),
+                    "bad_interval_severity":float(obj.get("advanced",{}).get("bad_interval_severity",0)),
+                    "echo_score":float(obj.get("advanced",{}).get("echo_score",0)),
+                    "choppiness_score":float(obj.get("advanced",{}).get("choppiness_score",0)),
+                    "residual_intrusion":float(obj.get("advanced",{}).get("residual_intrusion",0)),
                 })
 
     failures=[];reports={}
@@ -155,6 +165,9 @@ def main():
     }
     Path(a.out).write_text(json.dumps(payload,indent=2)+"\n",encoding="utf-8")
     print(json.dumps({k:payload[k] for k in ["suite","reference_count","criteria","failures"]},indent=2))
+    if failures:
+        print("delay diagnostics")
+        print(json.dumps([x for x in results if x["family"] in ("identity","delay")],indent=2))
     if failures:raise SystemExit(1)
 
 if __name__=="__main__":main()

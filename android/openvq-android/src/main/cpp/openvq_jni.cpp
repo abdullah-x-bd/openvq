@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "openvq/advanced.h"
+#include "openvq/trace.h"
 
 namespace {
 openvq::AudioBuffer FromShortArray(
@@ -120,6 +121,22 @@ Java_ai_openvq_OpenVqNative_analyzePcm16Phase4WithExperts(
   } catch (const std::exception& e) {
     const std::string json =
         std::string("{\"error\":\"") + e.what() + "\"}";
+    return env->NewStringUTF(json.c_str());
+  }
+}
+
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_ai_openvq_OpenVqNative_tracePcm16(
+    JNIEnv* env, jobject, jshortArray reference, jshortArray degraded, jint sample_rate) {
+  try {
+    const auto result = openvq::TraceAnalyzer().Analyze(
+        FromShortArray(env, reference, sample_rate),
+        FromShortArray(env, degraded, sample_rate));
+    const std::string json = openvq::TraceToJson(result);
+    return env->NewStringUTF(json.c_str());
+  } catch (const std::exception& e) {
+    const std::string json = std::string("{\"error\":\"") + e.what() + "\"}";
     return env->NewStringUTF(json.c_str());
   }
 }

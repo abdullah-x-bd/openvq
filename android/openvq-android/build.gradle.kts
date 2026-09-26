@@ -29,3 +29,8 @@ android {
 kotlin {
     jvmToolchain(17)
 }
+
+
+dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.30.0")
+}
