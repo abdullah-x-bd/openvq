@@ -27,8 +27,23 @@ def write_wav(path,samples,sr):
 def delay(x,sr,ms):return [0.0]*int(sr*ms/1000)+list(x)
 def gain(x,db):
     g=10**(db/20);return [clamp(v*g) for v in x]
-def dropout(x,sr,ms,start_fraction=.45):
-    y=list(x);n=int(sr*ms/1000);b=max(0,int(len(y)*start_fraction-n/2));e=min(len(y),b+n)
+def strongest_active_center(x,sr,window_ms=320):
+    n=max(1,int(sr*window_ms/1000))
+    if len(x)<=n:return len(x)//2
+    # Prefix-energy search finds a speech-dense region deterministically.
+    pref=[0.0]
+    for v in x:pref.append(pref[-1]+v*v)
+    best_b=0;best_e=-1.0
+    step=max(1,n//8)
+    for b in range(0,len(x)-n+1,step):
+        e=pref[b+n]-pref[b]
+        if e>best_e:best_e=e;best_b=b
+    return best_b+n//2
+
+def dropout(x,sr,ms,center=None):
+    y=list(x);n=max(1,int(sr*ms/1000))
+    if center is None:center=strongest_active_center(x,sr,max(320,ms))
+    b=max(0,int(center-n/2));e=min(len(y),b+n)
     for i in range(b,e):y[i]=0.0
     return y
 def add_noise(x,snr,seed):
@@ -83,7 +98,9 @@ def main():
             cases=[
                 ("identity",0,"clean",x),
                 *[("delay",ms,f"{ms}ms",delay(x,sr,ms)) for ms in [40,120,250,500]],
-                *[("dropout",ms,f"{ms}ms",dropout(x,sr,ms)) for ms in [20,80,240,600]],
+                *[("dropout",ms,f"{ms}ms",
+                    dropout(x,sr,ms,strongest_active_center(x,sr,max(320,ms))))
+                  for ms in [20,80,240,600]],
                 *[("noise",-snr,f"snr{snr}",add_noise(x,snr,1000+ri)) for snr in [35,25,15,8]],
                 *[("lowpass",-hz,f"{hz}hz",lowpass(x,sr,min(hz,sr*.45))) for hz in [14000,9000,5000,3200]],
                 *[("attenuation",-db,f"{db}db",gain(x,db)) for db in [-3,-9,-18,-30]],
