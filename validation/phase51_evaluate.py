@@ -270,7 +270,7 @@ def mlp_cv(rows,features):
         obj=objective(by)
         item={"hidden":hidden,"alpha":alpha,"by_dataset":by,"objective":obj}
         grid.append(item)
-        key=(obj["worst_correlation"],obj["mean_correlation"],-obj["worst_rmse_mos"])
+        key=(obj["worst_correlation"],obj["mean_correlation"],-obj["worst_rmse_normalized"])
         if best is None or key>best[0]:best=(key,item)
     return best[1],grid
 
