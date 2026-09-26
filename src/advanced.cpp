@@ -513,9 +513,8 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
     const AudioBuffer& degraded,
     const AnalysisOptions& options) const {
   AdvancedAnalysisResult out;
-  out.base = Analyzer().Analyze(reference, degraded, options);
-
   const PreparedPair pair = PreparePair(reference, degraded, options);
+  out.base = Analyzer().AnalyzePrepared(pair, options);
   const int sr = pair.sample_rate;
   const auto& r = pair.reference;
   const auto& d = pair.degraded;
@@ -576,10 +575,17 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   frame_disc.reserve(out.base.frames.size());
   double longest_bad_ms = 0.0;
   double current_bad_ms = 0.0;
+  double previous_start_ms = -1e30;
   int severe_frames = 0;
   for (const auto& fq : out.base.frames) {
     frame_sims.push_back(fq.similarity);
     frame_disc.push_back(fq.discontinuity);
+    // out.base.frames contains active-reference frames only. A large timestamp
+    // gap therefore represents intervening inactive speech/silence and must
+    // break an accumulated bad interval.
+    if (fq.start_ms - previous_start_ms > options.hop_ms * 1.5) {
+      current_bad_ms = 0.0;
+    }
     const bool bad = fq.discontinuity > 0.45 || fq.similarity < 0.55;
     if (bad) {
       current_bad_ms += options.hop_ms;
@@ -588,6 +594,7 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
     } else {
       current_bad_ms = 0.0;
     }
+    previous_start_ms = fq.start_ms;
   }
   out.advanced.similarity_p10 = Quantile(frame_sims, 0.10);
   out.advanced.similarity_p50 = Quantile(frame_sims, 0.50);
@@ -677,7 +684,8 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
 
   std::ostringstream o;
   o << std::fixed << std::setprecision(6);
-  o << "{\"mos\":" << r.mos;
+  o << "{\"mos\":" << r.mos
+    << ",\"frontend_id\":\"" << kFrontendId << "\"";
   if (comma != std::string::npos) {
     o << base.substr(comma, base.size() - comma - 1);
   }
