@@ -20,6 +20,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install real-speech validation dependencies
+        run: |
+          python -m pip install --disable-pip-version-check huggingface_hub openpyxl
       - name: Build Release with active tests
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -34,6 +40,13 @@ jobs:
           cat /tmp/require.out
           test "$rc" -ne 0
           grep -q "requirement failed" /tmp/require.out
+      - name: Run independent six-reference real-speech suite
+        run: |
+          mkdir -p validation/phase6/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa             TCD-VOIP.zip --local-dir validation/phase6/tcd
+          unzip -q validation/phase6/tcd/TCD-VOIP.zip             -d validation/phase6/tcd/extracted
+          python validation/tcd_prepare.py             validation/phase6/tcd/extracted validation/phase6/tcd/manifests
+          python validation/engineering_matrix_real.py             validation/phase6/tcd/manifests/all.csv             --cli ./build/openvq_cli             --out validation/phase6/engineering-real.json --references 6
       - name: Freeze frontend contract evidence
         run: |
           mkdir -p validation/phase6
@@ -54,4 +67,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: openvq-phase6a-foundation
-          path: validation/phase6/frontend-freeze.json
+          path: |
+            validation/phase6/frontend-freeze.json
+            validation/phase6/engineering-real.json
