@@ -48,8 +48,12 @@ jobs:
           from pathlib import Path
           from collections import Counter
 
-          out=Path("validation/phase4/external")
-          out.mkdir(parents=True,exist_ok=True)
+          roots={
+              "NISQA_TEST_FOR": Path("validation/phase4/external-for"),
+              "NISQA_TEST_NSC": Path("validation/phase4/external-nsc"),
+          }
+          for p in roots.values():
+              p.mkdir(parents=True,exist_ok=True)
 
           sources=[
               ("zenodo","https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"),
@@ -86,7 +90,7 @@ jobs:
                       if matches:
                           print("extracting",family,len(matches),"entries from",label,flush=True)
                           for n in matches:
-                              z.extract(n,path=out)
+                              z.extract(n,path=roots[family])
                           found[family]={"source":label,"entries":len(matches)}
 
           print("FOUND",found,flush=True)
@@ -101,35 +105,55 @@ jobs:
 
       - name: Prepare frozen TEST_FOR manifest
         run: |
-          python validation/nisqa_holdout_prepare.py             validation/phase4/external validation/phase4/test-for.csv             --family NISQA_TEST_FOR --expected 240
+          python validation/nisqa_holdout_prepare.py \
+            validation/phase4/external-for validation/phase4/test-for.csv \
+            --family NISQA_TEST_FOR --expected 240
 
-      - name: Prepare frozen TEST_NSC manifest
-        if: ${{ hashFiles('validation/phase4/nsc-available.txt') != '' }}
+      - name: Prepare frozen TEST_NSC manifest if available
         run: |
-          test "$(cat validation/phase4/nsc-available.txt)" = "yes"
-          python validation/nisqa_holdout_prepare.py             validation/phase4/external validation/phase4/test-nsc.csv             --family NISQA_TEST_NSC --expected 240
+          if [ "$(cat validation/phase4/nsc-available.txt)" = "yes" ]; then
+            python validation/nisqa_holdout_prepare.py \
+              validation/phase4/external-nsc validation/phase4/test-nsc.csv \
+              --family NISQA_TEST_NSC --expected 240
+          else
+            echo "NSC is not exposed by the upstream archives. Continuing with the frozen TEST_FOR result."
+          fi
 
       - name: Score native Phase 4 on TEST_FOR
         run: |
-          python validation/phase4_holdout_score.py             validation/phase4/test-for.csv validation/phase4/test-for-scored.csv             --cli ./build/openvq_cli --jobs 4
+          python validation/phase4_holdout_score.py \
+            validation/phase4/test-for.csv validation/phase4/test-for-scored.csv \
+            --cli ./build/openvq_cli --jobs 4
 
-      - name: Score native Phase 4 on TEST_NSC
-        if: ${{ hashFiles('validation/phase4/test-nsc.csv') != '' }}
+      - name: Score native Phase 4 on TEST_NSC if available
         run: |
-          python validation/phase4_holdout_score.py             validation/phase4/test-nsc.csv validation/phase4/test-nsc-scored.csv             --cli ./build/openvq_cli --jobs 4
+          if [ -f validation/phase4/test-nsc.csv ]; then
+            python validation/phase4_holdout_score.py \
+              validation/phase4/test-nsc.csv validation/phase4/test-nsc-scored.csv \
+              --cli ./build/openvq_cli --jobs 4
+          else
+            echo "Skipping TEST_NSC scoring because the upstream archive does not expose it."
+          fi
 
       - name: Report TEST_FOR
         id: report_for
         continue-on-error: true
         run: |
-          python validation/phase4_holdout_report.py             validation/phase4/test-for-scored.csv             --out validation/phase4/test-for-report.json
+          python validation/phase4_holdout_report.py \
+            validation/phase4/test-for-scored.csv \
+            --out validation/phase4/test-for-report.json
 
-      - name: Report TEST_NSC
+      - name: Report TEST_NSC if available
         id: report_nsc
-        if: ${{ hashFiles('validation/phase4/test-nsc-scored.csv') != '' }}
         continue-on-error: true
         run: |
-          python validation/phase4_holdout_report.py             validation/phase4/test-nsc-scored.csv             --out validation/phase4/test-nsc-report.json
+          if [ -f validation/phase4/test-nsc-scored.csv ]; then
+            python validation/phase4_holdout_report.py \
+              validation/phase4/test-nsc-scored.csv \
+              --out validation/phase4/test-nsc-report.json
+          else
+            echo "No TEST_NSC result to report."
+          fi
 
       - name: Summarize locked external gate
         run: |
