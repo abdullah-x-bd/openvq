@@ -1,100 +1,129 @@
 # Product integration guidance
 
-## Intended product use
+## Intended use
 
-OpenVQ is designed for use in telecom and drive-test systems where a known reference speech sample is available and a recorded or transmitted degraded sample can be compared with it.
+OpenVQ is designed for full-reference telecom and drive-test workflows where a known reference utterance and a captured degraded utterance can be compared.
 
-Potential product outputs include:
+Useful product outputs include:
 
-- OpenVQ quality score
-- bandwidth class
-- delay
-- clock drift
-- clipping
-- missing and added disturbance
-- coloration
-- noisiness
-- discontinuity
-- loudness mismatch
-- echo
-- choppiness
-- residual intrusion
-- confidence
+- quality score for internal experimentation;
+- bandwidth class;
+- delay;
+- clock drift;
+- active-speech coverage;
+- lost active speech;
+- alignment confidence;
+- clipping;
+- missing and added disturbance;
+- coloration;
+- noisiness;
+- discontinuity;
+- loudness/active-level mismatch;
+- echo;
+- choppiness;
+- residual intrusion;
+- confidence.
 
 ## Naming
 
-A product may call the output:
+Acceptable names include:
 
-- OpenVQ MOS
-- OpenVQ quality score
-- OpenVQ full-reference speech-quality score
+- OpenVQ quality score;
+- OpenVQ full-reference speech-quality score;
+- OpenVQ MOS, when clearly identified as an OpenVQ-specific research/product scale.
 
-It should not call the output:
+Do not label an OpenVQ output as:
 
-- POLQA
-- POLQA MOS
-- P.863 score
-- P.863-compliant score
+- POLQA;
+- POLQA MOS;
+- P.863 score;
+- P.863-compliant score.
 
-unless a separate licensed and conformant POLQA implementation is actually being used.
+## Current deployment status after Phase 5.1
 
-## Current deployment status
+The repaired native analyzer and diagnostic outputs are suitable for:
 
-The native analyzer and diagnostics are suitable for engineering integration and experimental field collection.
+- engineering integration;
+- internal drive-test experimentation;
+- side-by-side field collection;
+- impairment diagnostics;
+- collection of future validation data.
 
-The frozen Phase 3 hybrid score is not currently validated strongly enough to be presented as a general replacement for POLQA because it failed the independent OpenACE codec benchmark.
+OpenVQ is **not** currently validated strongly enough to be marketed as a general replacement for POLQA.
 
-A drive-test product can still integrate OpenVQ now for:
+Phase 5.1 improved the measurement foundation and known-domain modeling, but leave-corpus-out evaluation still failed severely for some unseen domains.
 
-- internal experimentation
-- side-by-side field evaluation
-- diagnostic dimensions
-- collection of future validation data
+## Phase 5.1 model status
 
-A broad external claim that OpenVQ is equivalent to or better than POLQA should wait for Phase 4 and new untouched validation.
+Phase 5.1 produced a reproducible constrained rich-v2 research export.
 
-## Recommended application architecture
+It was deliberately **not promoted into the main CLI or Android product scoring path** because unseen-corpus transfer was insufficient.
+
+The small Phase 5.1 MLP is diagnostic only.
+
+The repaired preprocessing and native analysis code *are* part of the current native engine and Android build.
+
+## Recommended product architecture
 
 ```
 known test utterance
         |
-        +---------------------+
-                              |
-                              v
-network / device / call --> recorded speech
-                              |
-                              v
-                       native OpenVQ
-                              |
-                    diagnostics + score
-                              |
-                 optional expert evidence
-                              |
-                              v
-                       product reporting
+        v
+shared OpenVQ preprocessing
+        |
+        v
+alignment + active-speech accounting
+        |
+        v
+native perceptual / telecom diagnostics
+        |
+        +--------------------------+
+        |                          |
+        v                          v
+engineering diagnostics     experimental quality model
+        |                          |
+        +------------+-------------+
+                     |
+                     v
+               product reporting
 ```
 
-The preferred Phase 4 direction is native-first. External experts such as ViSQOL should be optional and reliability-gated.
+The diagnostic path should remain useful even while the learned MOS mapper evolves.
 
-## Why the diagnostics matter
+## Why diagnostics are currently the strongest integration surface
 
-A single MOS-like value can identify that quality changed, but it is less useful for troubleshooting.
+Phase 5.1 separated engineering sanity from subjective generalization.
 
-OpenVQ's diagnostic dimensions can help distinguish cases such as:
+The engineering suites pass, while unseen-corpus MOS mapping remains weak.
 
-- network loss or choppiness
-- echo
-- bandwidth limitation
-- excessive noise
-- spectral coloration
-- clipping
-- level mismatch
-- temporal misalignment
+That means outputs such as:
 
-For a drive-test application this diagnostic layer may be more operationally useful than reproducing one proprietary scalar score.
+- delay;
+- active coverage;
+- lost speech;
+- clipping;
+- bandwidth;
+- echo;
+- choppiness;
+- noise-related diagnostics;
+- alignment confidence;
+
+can be operationally useful without implying that the current scalar MOS is POLQA-equivalent.
+
+## External claims
+
+Before making a broad claim that OpenVQ equals or outperforms POLQA, the project should complete:
+
+1. a frozen Phase 6 candidate;
+2. untouched external subjective validation;
+3. lawful direct POLQA scoring of the exact same audio pairs;
+4. the locked paired comparison protocol;
+5. reporting across impairment families rather than only aggregate metrics.
 
 ## Commercial note
 
-OpenVQ's repository license is PolyForm Noncommercial 1.0.0. Commercial deployment requires a separate written commercial license from the OpenVQ licensor.
+The repository uses PolyForm Noncommercial 1.0.0.
 
-Google ViSQOL is a separate upstream project and must retain its own licensing and attribution requirements when used.
+Commercial deployment requires a separate written commercial license from the OpenVQ licensor.
+
+Google ViSQOL is a separate upstream project with its own licensing and attribution requirements when used.
