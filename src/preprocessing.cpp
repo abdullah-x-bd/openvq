@@ -253,6 +253,18 @@ double AlignmentMap::MapReferenceSample(double reference_sample) const{
   return a.degraded_sample+t*(b.degraded_sample-a.degraded_sample);
 }
 
+double AlignmentMap::ConfidenceAt(double reference_sample) const{
+  if(knots.empty())return mean_confidence;
+  if(reference_sample<=knots.front().reference_sample)return knots.front().confidence;
+  if(reference_sample>=knots.back().reference_sample)return knots.back().confidence;
+  auto it=std::upper_bound(knots.begin(),knots.end(),reference_sample,
+      [](double x,const AlignmentKnot& k){return x<k.reference_sample;});
+  const auto& b=*it;const auto& a=*(it-1);
+  const double t=(reference_sample-a.reference_sample)/
+      std::max(1e-9,b.reference_sample-a.reference_sample);
+  return Clamp(a.confidence+t*(b.confidence-a.confidence),0.0,1.0);
+}
+
 bool AlignmentMap::Covers(double reference_sample,std::size_t frame_samples,
                           std::size_t degraded_size) const{
   const double b=MapReferenceSample(reference_sample);
