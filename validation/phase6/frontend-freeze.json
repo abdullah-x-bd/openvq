@@ -1,0 +1,25 @@
+{
+  "frontend_id": "openvq-frontend-phase6a-2026-09-26-v1",
+  "source_commit": "d129658f084eaac28ed88f801c566ff2addb72f2",
+  "workflow_run": 36232604130,
+  "artifact_id": 10902877054,
+  "artifact_sha256": "772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1",
+  "release_tests": "all CTest targets active; controlled failing Require reaches nonzero status",
+  "real_speech_engineering_failures": [],
+  "real_speech_reference_count": 6,
+  "identity_mos_min": 4.4,
+  "pure_delay_max_abs_delta_mos": 0.2,
+  "observed_worst_pure_delay_abs_delta_mos": 0.00005,
+  "severity_spearman_max": -0.2,
+  "delay_contract_ms": [40, 120, 250, 500],
+  "unambiguous_delay_tolerance_ms": 5,
+  "files": {
+    "include/openvq/preprocessing.h": "b9ee06e206a0add7ac90f9524d95cccd34cecdc433c770f83473266acbe50298",
+    "src/preprocessing.cpp": "647a9cf8d045f42369945d3fbe942acdaf64c74abd2a92c42953280aba8472de",
+    "include/openvq/openvq.h": "4540e8f7fbb7f78ee9248f7fe6c489c1ca4e9645eae70c5d9c573e857795f30a",
+    "src/openvq.cpp": "3e58a6f979f10f24a0ce02af68fa545b593405f889b39a26e3eb4a944ac5a7e5",
+    "include/openvq/advanced.h": "7fec526b24bba4a17b3714e6e7a1de64e3d3180bcec085d5929092e871365925",
+    "src/advanced.cpp": "26a71664f406f99ca40545877469ab6b872aecfce91b3c200d22f26142428fdd",
+    "tests/test_preprocessing.cpp": "a3eb85df3bbca5347e5f4d75f897b25ac77b08cf5e9a628e9800f63f8b031814"
+  }
+}
