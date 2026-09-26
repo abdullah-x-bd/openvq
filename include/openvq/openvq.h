@@ -106,7 +106,12 @@ struct AnalysisResult {
   BandwidthClass bandwidth = BandwidthClass::kUnknown;
   double delay_ms = 0.0;
   double clock_drift_ppm = 0.0;
+  double alignment_confidence = 0.0;
   double active_speech_seconds = 0.0;
+  double active_coverage_fraction = 0.0;
+  double lost_active_speech_fraction = 0.0;
+  double active_level_reference_db = -120.0;
+  double active_level_degraded_db = -120.0;
   double clipping_ratio = 0.0;
   double missing_disturbance = 0.0;
   double added_disturbance = 0.0;
