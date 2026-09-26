@@ -1,0 +1,210 @@
+name: validation-phase4-tmhint-external
+
+on:
+  push:
+    branches:
+      - "validation/phase4-robust-fusion"
+    paths:
+      - "validation/PHASE4_TMHINT_EXTERNAL_PROTOCOL.md"
+      - ".github/workflows/validation-phase4-tmhint-external.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tmhint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact frozen Phase 4 source
+        uses: actions/checkout@v5
+        with:
+          ref: d530382d6161d0a5dc3d019782192a047982f839
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          python -m pip install --disable-pip-version-check huggingface_hub numpy
+
+      - name: Verify and build frozen candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "d530382d6161d0a5dc3d019782192a047982f839"
+          test "$(git hash-object src/phase4_model.inc)" = "29fb517098697bf8184712a828c332984d7a2eb6"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Download untouched TMHINT-QI v2 test archive
+        run: |
+          mkdir -p validation/phase4/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TMHINTQI.zip --local-dir validation/phase4/tmhint
+          unzip -q validation/phase4/tmhint/TMHINTQI.zip \
+            -d validation/phase4/tmhint/extracted
+
+      - name: Prepare frozen full-reference test manifest
+        run: |
+          python - <<'PY'
+          import csv, json
+          from collections import defaultdict
+          from pathlib import Path
+
+          root=Path("validation/phase4/tmhint/extracted")
+          csvs=list(root.rglob("raw_data.csv"))
+          if len(csvs)!=1:
+              raise SystemExit(f"expected one raw_data.csv, found {csvs}")
+          raw=csvs[0]
+
+          test_dirs=[p for p in root.rglob("test") if p.is_dir()]
+          if not test_dirs:
+              raise SystemExit("TMHINT-QI test directory not found")
+          wavs=[]
+          for td in test_dirs:
+              wavs.extend(td.rglob("*.wav"))
+          by_stem={p.stem:p.resolve() for p in wavs}
+          print("test wav files",len(wavs),flush=True)
+
+          ratings=defaultdict(list)
+          meta={}
+          with raw.open(newline="",encoding="utf-8-sig") as f:
+              rd=csv.DictReader(f)
+              for r in rd:
+                  stem=(r.get("file_name") or "").strip()
+                  q=(r.get("quality_score") or "").strip()
+                  if not stem or not q or stem not in by_stem:
+                      continue
+                  ratings[stem].append(float(q))
+                  meta[stem]=r
+
+          clean_tokens={"","none","clean","null","na","n/a"}
+          out=[]
+          unresolved=[]
+          for stem,scores in sorted(ratings.items()):
+              r=meta[stem]
+              method=(r.get("method") or "").strip()
+              if method.lower() in clean_tokens:
+                  continue
+
+              candidates=[]
+              uttr=(r.get("uttr") or "").strip()
+              if uttr:
+                  candidates.extend([uttr,Path(uttr).stem])
+              pos=stem.find("TMHINT_")
+              if pos>=0:
+                  candidates.append(stem[pos:])
+
+              ref=None
+              for cand in candidates:
+                  if cand in by_stem and by_stem[cand] != by_stem[stem]:
+                      ref=by_stem[cand]
+                      break
+              if ref is None:
+                  unresolved.append({"file":stem,"method":method,"uttr":uttr})
+                  continue
+
+              mean_q=sum(scores)/len(scores)
+              out.append({
+                  "reference":str(ref),
+                  "degraded":str(by_stem[stem]),
+                  "human_mos":1.0+0.8*mean_q,
+                  "family":"TMHINT_QI_V2_TEST",
+                  "condition_id":method,
+                  "filename":by_stem[stem].name,
+                  "method":method,
+                  "raw_quality_mean":mean_q,
+                  "listener_count":len(scores),
+              })
+
+          print(json.dumps({
+              "test_wavs":len(wavs),
+              "rated_test_files":len(ratings),
+              "paired_nonclean":len(out),
+              "unresolved_nonclean":len(unresolved),
+              "unresolved_examples":unresolved[:10],
+          },indent=2),flush=True)
+
+          if len(out)<500:
+              raise SystemExit(f"too few deterministic full-reference pairs: {len(out)}")
+
+          path=Path("validation/phase4/tmhint-manifest.csv")
+          fields=list(out[0].keys())
+          with path.open("w",newline="",encoding="utf-8") as f:
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(out)
+          PY
+
+      - name: Score frozen native Phase 4
+        run: |
+          python validation/phase4_holdout_score.py \
+            validation/phase4/tmhint-manifest.csv \
+            validation/phase4/tmhint-scored.csv \
+            --cli ./build/openvq_cli --jobs 4
+
+      - name: Report frozen TMHINT-QI result
+        id: report
+        continue-on-error: true
+        run: |
+          python validation/phase4_holdout_report.py \
+            validation/phase4/tmhint-scored.csv \
+            --out validation/phase4/tmhint-report.json
+
+      - name: Per-method report and criterion
+        run: |
+          python - <<'PY'
+          import csv,json,math
+          from collections import defaultdict
+          from pathlib import Path
+
+          rows=list(csv.DictReader(open("validation/phase4/tmhint-scored.csv",newline="",encoding="utf-8")))
+          def ranks(x):
+              order=sorted(range(len(x)),key=lambda i:x[i]);out=[0.0]*len(x);i=0
+              while i<len(order):
+                  j=i+1
+                  while j<len(order) and x[order[j]]==x[order[i]]:j+=1
+                  rr=(i+j-1)/2+1
+                  for k in range(i,j):out[order[k]]=rr
+                  i=j
+              return out
+          def pcc(a,b):
+              ma=sum(a)/len(a);mb=sum(b)/len(b)
+              num=sum((x-ma)*(y-mb) for x,y in zip(a,b))
+              den=math.sqrt(sum((x-ma)**2 for x in a)*sum((y-mb)**2 for y in b))
+              return num/den if den else 0.0
+          def metrics(rr):
+              y=[float(r["human_mos"]) for r in rr];p=[float(r["openvq_mos"]) for r in rr]
+              e=[b-a for a,b in zip(y,p)]
+              return {"n":len(rr),"pearson":pcc(y,p),"spearman":pcc(ranks(y),ranks(p)),
+                      "rmse":math.sqrt(sum(x*x for x in e)/len(e)),
+                      "mae":sum(abs(x) for x in e)/len(e),"bias":sum(e)/len(e)}
+          overall=metrics(rows)
+          groups=defaultdict(list)
+          for r in rows:groups[r["method"]].append(r)
+          by_method={k:metrics(v) for k,v in sorted(groups.items()) if len(v)>=4}
+          passes=overall["pearson"]>=.70 and overall["spearman"]>=.70 and overall["rmse"]<=.80
+          out={
+            "model_id":"phase4-native-poly2-constrained-2026-09-25-v3",
+            "source_commit":"d530382d6161d0a5dc3d019782192a047982f839",
+            "dataset":"TMHINT-QI version II test full-reference subset",
+            "human_scale_mapping":"1 + 0.8 * mean_quality_score",
+            "overall":overall,
+            "by_method":by_method,
+            "criterion":{"pearson_min":.70,"spearman_min":.70,"rmse_max":.80},
+            "passes_external_generalization_criterion":passes,
+          }
+          Path("validation/phase4/tmhint-summary.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          if not passes:raise SystemExit(2)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-tmhint-external-v3
+          path: |
+            validation/phase4/tmhint-manifest.csv
+            validation/phase4/tmhint-scored.csv
+            validation/phase4/tmhint-report.json
+            validation/phase4/tmhint-summary.json
