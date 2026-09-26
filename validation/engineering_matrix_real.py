@@ -86,7 +86,7 @@ def main():
                 *[("dropout",ms,f"{ms}ms",dropout(x,sr,ms)) for ms in [20,80,240,600]],
                 *[("noise",-snr,f"snr{snr}",add_noise(x,snr,1000+ri)) for snr in [35,25,15,8]],
                 *[("lowpass",-hz,f"{hz}hz",lowpass(x,sr,min(hz,sr*.45))) for hz in [14000,9000,5000,3200]],
-                *[("attenuation",db,f"{db}db",gain(x,db)) for db in [-3,-9,-18,-30]],
+                *[("attenuation",-db,f"{db}db",gain(x,db)) for db in [-3,-9,-18,-30]],
             ]
             for ci,(fam,level,label,y) in enumerate(cases):
                 dp=td/f"d_{ri}_{ci}.wav";write_wav(dp,y,sr)
@@ -117,8 +117,9 @@ def main():
         for ri,xs in by_ref.items():
             xs=sorted(xs,key=lambda x:x["level"])
             rho=spearman([x["level"] for x in xs],[x["mos"] for x in xs])
-            # Levels are encoded so larger = more severe for dropout and
-            # attenuation, while negative SNR/cutoff makes larger = more severe.
+            # Levels are encoded so numerically larger always means more severe:
+            # dropout duration and attenuation magnitude are positive, while
+            # negative SNR/cutoff values increase toward zero as severity rises.
             fam_rep[str(ri)]={"rho":rho,"rows":xs}
             if rho>-0.20:
                 failures.append(f"{fam} reference {ri} not negatively associated with severity: {rho:.3f}")
