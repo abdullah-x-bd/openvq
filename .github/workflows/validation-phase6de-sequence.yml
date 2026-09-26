@@ -1,0 +1,136 @@
+name: validation-phase6de-sequence
+
+on:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase6/RUN_SEQUENCE"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sequence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check             numpy==2.3.3 scipy scikit-learn soundfile huggingface_hub openpyxl remotezip pyyaml             torch==2.14.1 onnx==1.23.0 onnxruntime==1.30.0
+      - name: Build Phase 6 frontend and trace CLI
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Download latest successful Phase 6B evidence
+        run: |
+          run_id="$(gh run list --repo abdullah-x-bd/openvq --workflow validation-phase6b-summary.yml             --branch validation/phase6 --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          test -n "$run_id"
+          echo "phase6b_run_id=$run_id"
+          mkdir -p /tmp/phase6b
+          gh run download "$run_id" --repo abdullah-x-bd/openvq --name openvq-phase6b-summary --dir /tmp/phase6b
+          mkdir -p validation/phase6
+          cp /tmp/phase6b/canonical-manifest.csv validation/phase6/
+          cp /tmp/phase6b/splits.json validation/phase6/
+          cp /tmp/phase6b/*-features-source.csv validation/phase6/
+      - name: Rehydrate exact development audio paths
+        run: |
+          mkdir -p validation/phase6/data/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TCD-VOIP.zip --local-dir validation/phase6/data/tcd
+          unzip -q validation/phase6/data/tcd/TCD-VOIP.zip -d validation/phase6/data/tcd/extracted
+          python validation/tcd_prepare.py validation/phase6/data/tcd/extracted validation/phase6/data/tcd/manifests
+
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          roots={"NISQA_TEST_P501/":Path("validation/phase6/data/p501"),
+                 "NISQA_TEST_FOR/":Path("validation/phase6/data/test-for")}
+          for p in roots.values():p.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              for token,out in roots.items():
+                  mm=[n for n in names if token in n and not n.endswith("/")]
+                  if not mm:raise SystemExit("missing "+token)
+                  for n in mm:z.extract(n,path=out)
+          PY
+
+          mkdir -p validation/phase6/data/openace
+          python - <<'PY'
+          from huggingface_hub import HfApi,snapshot_download
+          repo="mcernak/EARS-EMO-OpenACE";info=HfApi().dataset_info(repo)
+          snapshot_download(repo_id=repo,repo_type="dataset",revision=info.sha,local_dir="validation/phase6/data/openace/raw")
+          PY
+          python validation/openace_prepare.py validation/phase6/data/openace/raw validation/phase6/data/openace-raw.csv
+          python validation/manifest_pcm16.py validation/phase6/data/openace-raw.csv validation/phase6/data/openace.csv validation/phase6/data/openace-pcm16
+
+          mkdir -p validation/phase6/data/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TMHINTQI.zip --local-dir validation/phase6/data/tmhint
+          unzip -q validation/phase6/data/tmhint/TMHINTQI.zip -d validation/phase6/data/tmhint/extracted
+          python validation/phase6_tmhint_prepare.py validation/phase6/data/tmhint/extracted validation/phase6/data/tmhint.csv             --archive validation/phase6/data/tmhint/TMHINTQI.zip --exclusions validation/phase6/data/tmhint-exclusions.csv
+      - name: Merge feature tables
+        run: |
+          python - <<'PY'
+          import csv,glob
+          files=sorted(glob.glob("validation/phase6/*-features-source.csv"))
+          rows=[];fields=None
+          for p in files:
+              rr=list(csv.DictReader(open(p,newline="",encoding="utf-8")))
+              if rr:
+                  fields=fields or list(rr[0]);rows.extend(rr)
+          with open("validation/phase6/all-features-source.csv","w",newline="",encoding="utf-8") as f:
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+          print("feature rows",len(rows))
+          PY
+      - name: Export full native timelines
+        run: |
+          python validation/phase6_export_sequences.py             validation/phase6/canonical-manifest.csv validation/phase6/all-features-source.csv             validation/phase6/sequences --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Train Phase 6 sequence ablations
+        run: |
+          python validation/phase6_train_sequence.py             validation/phase6/sequences/sequences.csv validation/phase6/model --device cpu --max-epochs 100
+      - name: Select deterministic deployment seed and export ONNX
+        id: select
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          r=json.loads(Path("validation/phase6/model/phase6e-report.json").read_text())
+          mode=r["selected_mode"];seed=20260926
+          state=f"validation/phase6/model/{mode}-seed{seed}.pt"
+          print(f"mode={mode}");print(f"state={state}")
+          PY
+          sample="$(find validation/phase6/sequences/npz -name '*.npz' | head -1)"
+          python validation/phase6_export_onnx.py             --mode "${{ steps.select.outputs.mode }}"             --state "${{ steps.select.outputs.state }}"             --sample-trace "$sample" --output validation/phase6/model/model.onnx
+      - name: PyTorch to ONNX parity
+        run: |
+          python validation/phase6_parity.py             --mode "${{ steps.select.outputs.mode }}"             --state "${{ steps.select.outputs.state }}"             --onnx validation/phase6/model/model.onnx             --sequences validation/phase6/sequences/sequences.csv             --out validation/phase6/model/parity.json --max-samples 32 --mos-tol 0.0001
+      - name: Independent learned-model engineering gate
+        run: |
+          python validation/phase6_engineering_pairs.py validation/phase6/model/engineering-audio validation/phase6/model/engineering-manifest.csv
+          python validation/phase6_extract_features.py             validation/phase6/model/engineering-manifest.csv validation/phase6/model/engineering-features.csv             --dataset engineering --target-field human_mos --target-scale mos1to5             --group-field group_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase6_export_sequences.py             validation/phase6/model/engineering-manifest.csv validation/phase6/model/engineering-features.csv             validation/phase6/model/engineering-sequences --trace-cli ./build/openvq_trace_cli --jobs 2
+          python validation/phase6_score_engineering_onnx.py             validation/phase6/model/engineering-sequences/sequences.csv             --onnx validation/phase6/model/model.onnx --out validation/phase6/model/engineering-report.json
+      - name: Build immutable model bundle
+        run: |
+          python validation/phase6_make_bundle.py             --onnx validation/phase6/model/model.onnx             --state "${{ steps.select.outputs.state }}"             --training-report validation/phase6/model/phase6e-report.json             --mode "${{ steps.select.outputs.mode }}"             --output validation/phase6/model/bundle.json
+          test "$(stat -c%s validation/phase6/model/model.onnx)" -lt 10485760
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase6-candidate
+          path: |
+            validation/phase6/model/phase6e-report.json
+            validation/phase6/model/model.onnx
+            validation/phase6/model/bundle.json
+            validation/phase6/model/parity.json
+            validation/phase6/model/engineering-report.json
+            validation/phase6/model/*-seed*.pt
+            validation/phase6/sequences/trace-provenance.json
