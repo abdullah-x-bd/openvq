@@ -53,3 +53,36 @@ New Phase 5.1 TMHINT manifests record:
 - raw metadata SHA-256
 - manifest SHA-256
 - resolved and unresolved pair counts
+
+
+## Final Phase 5.1 resolution
+
+The final Phase 5.1 run confirmed the corrections above.
+
+Detected TMHINT release:
+
+`TMHINT_QI_ORIGINAL`
+
+Detected listener score scale:
+
+`1_to_5`
+
+Observed range:
+
+`1.0 .. 5.0`
+
+Final deterministic paired non-clean subset:
+
+`1455`
+
+Unique reference IDs:
+
+`192`
+
+The repaired synthetic engineering suite and the six-reference real-speech suite both completed with no failures.
+
+The historical Phase 4 TMHINT correlation values may still be cited as historical correlation diagnostics because Pearson and Spearman are invariant to the mistaken positive affine target transform. The historical TMHINT RMSE, MAE, and bias must not be cited as corrected absolute-error results.
+
+Phase 5 v1 used the transformed TMHINT target in fitting and is therefore permanently classified as a diagnostic development baseline.
+
+Canonical repaired evidence is recorded in `docs/PHASE5_1_RESULTS.md`.
