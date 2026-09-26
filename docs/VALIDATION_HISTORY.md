@@ -163,3 +163,94 @@ Grouped development cross-validation produced:
 The optional external-expert contribution is capped at 40 percent and uses a median consensus so one bad expert cannot dominate the final score.
 
 These numbers are development evidence only. A new untouched corpus is required before Phase 4 is described as externally validated.
+
+
+## Phase 4 frozen external validation
+
+Frozen candidate:
+
+`phase4-native-poly2-constrained-2026-09-25-v3`
+
+Frozen source commit:
+
+`d530382d6161d0a5dc3d019782192a047982f839`
+
+The Phase 4 candidate passed the native build, Android/native regression tests, codec and network laboratories, and the deterministic engineering matrix before external scoring.
+
+### NISQA TEST_FOR
+
+This set was not used in Phase 4 fitting or model selection before unblinding.
+
+Utterance level, n = 240:
+
+- Pearson = 0.6148
+- Spearman = 0.5892
+- RMSE = 0.7503 MOS
+- MAE = 0.5878 MOS
+- bias = +0.1005 MOS
+
+Condition level, n = 60:
+
+- Pearson = 0.7323
+- Spearman = 0.6598
+- RMSE = 0.5842 MOS
+- MAE = 0.4717 MOS
+- bias = +0.1005 MOS
+
+The predeclared utterance-level criterion required Pearson >= 0.70, Spearman >= 0.70, and RMSE <= 0.80. RMSE passed, but Pearson and Spearman did not. Phase 4 therefore failed the TEST_FOR gate.
+
+GitHub Actions run:
+
+`36208421278`
+
+Artifact:
+
+`openvq-phase4-external-v3`, artifact ID `10894988692`
+
+Artifact SHA-256:
+
+`a9f0482f3eb2913918e162b3217bf07891b9bf6da58c6cd16aa070f1e7f19bb4`
+
+### NISQA TEST_NSC
+
+The public NISQA documentation identifies TEST_NSC as a 240-file test set, but the public NISQA archive endpoints used by the workflow did not expose a TEST_NSC path in their ZIP directory listings.
+
+No OpenVQ TEST_NSC score was produced.
+
+The workflow was changed only to diagnose upstream packaging and to allow TEST_FOR to run independently. The frozen model and TEST_FOR criteria were not changed.
+
+### TMHINT-QI version II test fallback
+
+Because TEST_NSC could not be obtained, a second independent holdout protocol was frozen before any Phase 4 TMHINT score existed.
+
+The deterministic full-reference subset contained 1,455 non-clean test files paired with the unique clean test row sharing the same dataset utterance ID.
+
+Overall result:
+
+- Pearson = 0.2116
+- Spearman = 0.2580
+- RMSE = 2.1336 MOS
+- MAE = 2.0072 MOS
+- bias = -1.9891 MOS
+
+This is a clear cross-domain failure.
+
+GitHub Actions run:
+
+`36208883292`
+
+Artifact:
+
+`openvq-phase4-tmhint-external-v3`, artifact ID `10894734342`
+
+Artifact SHA-256:
+
+`800b1b927f42818d8202bc160c6de6eb15eff6341472ad53e0a24babeae23fc2`
+
+### Phase 4 conclusion
+
+Phase 4 v3 is an engineering-valid but scientifically failed generalization candidate.
+
+It must not be described as a general POLQA replacement or as externally validated across speech-quality domains.
+
+NISQA TEST_FOR and TMHINT-QI are now development evidence for any later model. They cannot be reused as untouched validation for Phase 5.
