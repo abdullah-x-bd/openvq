@@ -55,9 +55,8 @@ def metrics(y,p):
         "pearson":corr(y,p),
         "spearman":corr(ranks(y),ranks(p)),
         "rmse_normalized":float(np.sqrt(np.mean(e*e))),
-        "rmse_mos_equivalent":float(4*np.sqrt(np.mean(e*e))),
-        "mae_mos_equivalent":float(4*np.mean(np.abs(e))),
-        "bias_mos_equivalent":float(4*np.mean(e)),
+        "mae_normalized":float(np.mean(np.abs(e))),
+        "bias_normalized":float(np.mean(e)),
         "floor_fraction":float(np.mean(p<=1e-6)),
         "ceiling_fraction":float(np.mean(p>=1-1e-6)),
     }
@@ -158,7 +157,7 @@ def objective(by_dataset):
     return {
       "worst_correlation":float(min(corrs)),
       "mean_correlation":float(np.mean(corrs)),
-      "worst_rmse_mos":float(max(m["rmse_mos_equivalent"] for m in by_dataset.values())),
+      "worst_rmse_normalized":float(max(m["rmse_normalized"] for m in by_dataset.values())),
     }
 
 def grouped_cv(rows,eng,features,mode,alpha):
@@ -182,7 +181,7 @@ def select_constrained(rows,eng,features):
             cv=grouped_cv(rows,eng,features,mode,alpha)
             item={"mode":mode,"alpha":alpha,**cv};grid.append(item)
             o=cv["objective"]
-            key=(o["worst_correlation"],o["mean_correlation"],-o["worst_rmse_mos"],
+            key=(o["worst_correlation"],o["mean_correlation"],-o["worst_rmse_normalized"],
                  1 if mode=="linear" else 0,-alpha)
             if best is None or key>best[0]:best=(key,item)
     return best[1],grid
@@ -326,6 +325,7 @@ def main():
         "feature_schema":"rich_v2","mode":rich_sel["mode"],"alpha":rich_sel["alpha"],
         "basis_names":basis_names(RICH_V2,rich_sel["mode"]),
       },
+      "absolute_error_interpretation":"All targets are normalized to 0..1 for fitting. MUSHRA and MOS are different subjective protocols, so cross-corpus absolute errors are reported only on the normalized training scale and are not labelled as interchangeable MOS errors.",
       "warning":"All five subjective corpora are development evidence. URGENT 2026 remains untouched.",
     }
     Path(a.out).write_text(json.dumps(result,indent=2,allow_nan=False)+"\n",encoding="utf-8")
