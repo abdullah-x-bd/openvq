@@ -8,6 +8,7 @@ on:
       - "include/**"
       - "tests/**"
       - "CMakeLists.txt"
+      - "validation/engineering_matrix_real.py"
       - ".github/workflows/validation-phase6a-foundation.yml"
   workflow_dispatch:
 
