@@ -135,12 +135,13 @@ The engineering implementation is mature enough for reproducible benchmarking, b
 
 Frozen Phase 3 achieved strong results on its TCD and NISQA evaluations, then failed to generalize on the independent EARS-EMO-OpenACE codec benchmark. That failure is retained as part of the validation record rather than hidden or tuned away.
 
-As of Phase 4 development:
+Phase 4 has now completed its frozen external tests and failed the predeclared generalization gate.
 
+- NISQA TEST_FOR: Pearson 0.6148, Spearman 0.5892, RMSE 0.7503 MOS.
+- TMHINT-QI v2 full-reference subset: Pearson 0.2116, Spearman 0.2580, RMSE 2.1336 MOS.
 - OpenVQ is not demonstrated to be at POLQA parity.
-- The frozen Phase 3 model should not be described as a general replacement for POLQA.
-- OpenACE is now development evidence and cannot serve as untouched validation for Phase 4.
-- A new untouched subjective corpus is required before a Phase 4 generalization or POLQA-parity claim.
+- Phase 4 v3 should not be described as a general replacement for POLQA.
+- Phase 5 is the next model family. TEST_FOR and TMHINT are development evidence for Phase 5 and cannot validate it.
 
 See `validation/LOCKED_POLQA_PROTOCOL.md` for the predeclared POLQA comparison criterion and `docs/VALIDATION_HISTORY.md` for the chronological evidence.
 
