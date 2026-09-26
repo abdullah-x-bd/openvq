@@ -60,6 +60,10 @@ int main() {
               frozen.samples.begin() + start);
   }
   auto frozen_result = analyzer.Analyze(ref, frozen);
+  std::cerr << "PLC repeat diagnostic clean_choppiness="
+            << clean.advanced.choppiness_score
+            << " frozen_choppiness="
+            << frozen_result.advanced.choppiness_score << "\n";
   OPENVQ_REQUIRE(frozen_result.advanced.choppiness_score >
          clean.advanced.choppiness_score + 0.005);
   OPENVQ_REQUIRE(frozen_result.mos < clean.mos);
