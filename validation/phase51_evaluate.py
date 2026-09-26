@@ -136,13 +136,23 @@ def fit_constrained(rows,eng,features,mode,alpha):
     sw=np.sqrt(w);aw=a*sw[:,None];yw=y*sw
     reg=np.eye(a.shape[1]);reg[0,0]=0.0
     H=aw.T@aw+alpha*reg;g=aw.T@yw
-    initial=np.linalg.solve(H,g)
+    # Start from a scorer that is feasible by construction. With zero feature
+    # weights, a 0.90 intercept satisfies identity/sample-rate lower bounds,
+    # delay invariance, and all non-increasing severity inequalities.
+    initial=np.zeros(a.shape[1],float)
+    initial[0]=0.90
     C,lo,hi=constraint_matrix(eng,features,mode,mean,scale)
+    cons=LinearConstraint(C,lo,hi)
     fun=lambda th:0.5*th@H@th-g@th
     jac=lambda th:H@th-g
-    res=minimize(fun,initial,jac=jac,constraints=[LinearConstraint(C,lo,hi)],
-                 method="SLSQP",options={"maxiter":1800,"ftol":1e-9,"disp":False})
-    if not res.success:raise RuntimeError("constrained fit failed: "+res.message)
+    res=minimize(fun,initial,jac=jac,constraints=[cons],
+                 method="SLSQP",options={"maxiter":2500,"ftol":1e-9,"disp":False})
+    if not res.success:
+        res=minimize(fun,initial,jac=jac,hess=lambda th:H,constraints=[cons],
+                     method="trust-constr",
+                     options={"maxiter":1500,"gtol":1e-8,"xtol":1e-10,"verbose":0})
+    if not res.success:
+        raise RuntimeError("constrained fit failed: "+res.message)
     return {"mean":mean,"scale":scale,"theta":res.x,"iterations":int(res.nit),
             "mode":mode,"alpha":alpha,"features":features}
 
@@ -178,12 +188,19 @@ def select_constrained(rows,eng,features):
     grid=[];best=None
     for mode in MODES:
         for alpha in ALPHAS:
-            cv=grouped_cv(rows,eng,features,mode,alpha)
-            item={"mode":mode,"alpha":alpha,**cv};grid.append(item)
-            o=cv["objective"]
-            key=(o["worst_correlation"],o["mean_correlation"],-o["worst_rmse_normalized"],
-                 1 if mode=="linear" else 0,-alpha)
-            if best is None or key>best[0]:best=(key,item)
+            try:
+                cv=grouped_cv(rows,eng,features,mode,alpha)
+                item={"mode":mode,"alpha":alpha,**cv,"fit_status":"success"}
+                grid.append(item)
+                o=cv["objective"]
+                key=(o["worst_correlation"],o["mean_correlation"],-o["worst_rmse_normalized"],
+                     1 if mode=="linear" else 0,-alpha)
+                if best is None or key>best[0]:best=(key,item)
+            except RuntimeError as exc:
+                grid.append({"mode":mode,"alpha":alpha,"fit_status":"failed",
+                             "error":str(exc)})
+    if best is None:
+        raise RuntimeError("no constrained candidate completed successfully")
     return best[1],grid
 
 def leave_corpus_out(rows,eng,features):
