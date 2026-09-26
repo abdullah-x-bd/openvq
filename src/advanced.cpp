@@ -489,8 +489,10 @@ ResidualDiagnostics AnalyzeResidualStructure(
       freezes.push_back(Clamp((0.55 - change_ratio) / 0.55, 0.0, 1.0));
     }
   }
+  // PLC freezes are intentionally sparse. A 90th-percentile pool erases
+  // short repeated-frame events when they occupy only a few percent of a call.
   const double aligned_freeze_component =
-      freezes.empty() ? 0.0 : Quantile(freezes, 0.90);
+      freezes.empty() ? 0.0 : Quantile(freezes, 0.98);
 
   // A locally flexible alignment path must not be allowed to hide repeated
   // packet-loss-concealment audio. Run an independent repeat detector on the
@@ -531,7 +533,7 @@ ResidualDiagnostics AnalyzeResidualStructure(
     }
   }
   const double global_freeze_component =
-      global_freezes.empty() ? 0.0 : Quantile(global_freezes, 0.90);
+      global_freezes.empty() ? 0.0 : Quantile(global_freezes, 0.98);
   const double freeze_component =
       std::max(aligned_freeze_component, global_freeze_component);
 
