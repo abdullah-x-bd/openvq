@@ -58,13 +58,17 @@ Reference resolution is fixed before scoring:
 1. Read `raw_data.csv`.
 2. Restrict to files physically present under the archive's `test` tree.
 3. Exclude rows whose method denotes clean/None or is blank.
-4. For a degraded/enhanced row, first try the metadata `uttr` value as the
-   clean file stem.
-5. If that is not an exact clean filename, take the filename suffix beginning
-   at the first `TMHINT_` token as the clean stem.
-6. Require the resulting clean WAV to exist under the same test tree.
+4. Use the metadata `uttr` value as the pairing key.
+5. A reference is the unique test-row WAV with the same `uttr` whose
+   `method` field denotes clean/None. The clean WAV filename itself may carry
+   a prefix, so literal filename equality is not required.
+6. Require exactly one such clean reference row for that utterance.
 7. If a test sample cannot be paired by those rules, exclude it and report the
    count. No manual label-dependent pairing is allowed.
+
+This clarification was made after the first execution showed that clean WAV
+filenames are also prefixed. That execution stopped during manifest creation
+with zero paired samples and produced no OpenVQ TMHINT score.
 
 Individual listener quality ratings for the same file are averaged before
 evaluation.
