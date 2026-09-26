@@ -20,6 +20,7 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.exceptions import ConvergenceWarning
 from phase6_feature_schema import RICH_V3
+import phase51_evaluate as constrained
 
 SEEDS=[20260926,20260927,20260928]
 ALPHAS=[0.03,0.1,0.3]
@@ -151,13 +152,13 @@ def pred_ridge(m,rows):
     return m["model"].predict(Z)
 def by_dataset(rows,pred):
     Y=y(rows);D=ds(rows);return {d:metrics(Y[D==d],np.asarray(pred)[D==d]) for d in sorted(set(D))}
-def grouped_mlp(rows,alpha,balanced):
+def grouped_mlp(rows,alpha,balanced,seeds=SEEDS):
     ff=folds(rows);p=np.zeros(len(rows))
     epochs=[]
     for f in range(FOLDS):
         tr=[r for i,r in enumerate(rows) if ff[i]!=f];vi=[i for i in range(len(rows)) if ff[i]==f];va=[rows[i] for i in vi]
         fold_preds=[]
-        for seed in SEEDS:
+        for seed in seeds:
             m=fit_mlp(tr,alpha,seed,balanced);epochs.append(m["epochs"]);fold_preds.append(pred_mlp(m,va))
         avg=np.mean(fold_preds,axis=0)
         for i,v in zip(vi,avg):p[i]=v
@@ -173,7 +174,7 @@ def grouped_ridge(rows,alpha,degree):
 def select_mlp(rows,balanced):
     grid=[];best=None
     for a in ALPHAS:
-        cv=grouped_mlp(rows,a,balanced);item={"alpha":a,**cv};grid.append(item)
+        cv=grouped_mlp(rows,a,balanced,SEEDS);item={"alpha":a,**cv};grid.append(item)
         o=cv["objective"];key=(o["worst_correlation"],o["mean_correlation"],-o["worst_rmse_normalized"])
         if best is None or key>best[0]:best=(key,item)
     return best[1],grid
@@ -238,9 +239,11 @@ def main():
     a=ap.parse_args();rows=load(a.dataset);eng=read(a.engineering)
 
     # Exact-style historical ANN treatment: unbalanced, one seed, alpha .1.
-    historical=grouped_mlp(rows,0.1,False)
+    historical=grouped_mlp(rows,0.1,False,[20260926])
     ridge=grouped_ridge(rows,10.0,1)
     poly=grouped_ridge(rows,30.0,2)
+    constrained_sel,constrained_grid=constrained.select_constrained(rows,eng,RICH_V3)
+    constrained_loco=constrained.leave_corpus_out(rows,eng,RICH_V3)
     balanced_sel,balanced_grid=select_mlp(rows,True)
 
     # Full-data engineering report for each balanced seed.
@@ -257,10 +260,12 @@ def main():
       "arms":{
         "balanced_ridge":ridge,
         "balanced_unconstrained_poly2":poly,
+        "balanced_constrained_linear_or_poly2":{"selected":constrained_sel,"grid":constrained_grid},
         "historical_unweighted_mlp_48_24":historical,
         "balanced_mlp_48_24":{"selected":balanced_sel,"grid":balanced_grid,
           "engineering_by_seed":full_engineering},
       },
+      "nested_leave_corpus_out_constrained":constrained_loco,
       "nested_leave_corpus_out_balanced_mlp":nested_loco(rows,eng,True),
       "nested_processing_transfer_balanced_mlp":processing_transfer_mlp(rows,eng,True),
       "decision_rule":"advance a summary ANN only if unseen-domain ordering/error improves materially and model-specific engineering behavior remains acceptable; otherwise sequence modeling has a demonstrated problem to solve",
@@ -268,6 +273,7 @@ def main():
     Path(a.out).write_text(json.dumps(result,indent=2)+"\n")
     print(json.dumps({
       "ridge":ridge["objective"],"poly2":poly["objective"],
+      "constrained":constrained_sel["objective"],
       "historical_mlp":historical["objective"],
       "balanced_mlp":balanced_sel["objective"],
       "balanced_mlp_loco":result["nested_leave_corpus_out_balanced_mlp"],
