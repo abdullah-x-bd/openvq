@@ -22,6 +22,7 @@ struct AlignmentMap {
   std::vector<AlignmentKnot> knots;
 
   double MapReferenceSample(double reference_sample) const;
+  double ConfidenceAt(double reference_sample) const;
   bool Covers(double reference_sample, std::size_t frame_samples,
               std::size_t degraded_size) const;
 };
