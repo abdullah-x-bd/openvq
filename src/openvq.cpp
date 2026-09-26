@@ -1,4 +1,5 @@
 #include "openvq/openvq.h"
+#include "openvq/preprocessing.h"
 
 #include <algorithm>
 #include <array>
@@ -347,18 +348,17 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
     throw std::invalid_argument("empty audio");
   }
 
-  std::vector<float> ref = ResampleSinc(reference.samples, reference.sample_rate, options.target_sample_rate);
-  std::vector<float> deg = ResampleSinc(degraded.samples, degraded.sample_rate, options.target_sample_rate);
-  RemoveDc(&ref);
-  RemoveDc(&deg);
-  const int sr = options.target_sample_rate;
+  const PreparedPair pair = PreparePair(reference, degraded, options);
+  const auto& ref = pair.reference;
+  const auto& deg = pair.degraded;
+  const int sr = pair.sample_rate;
 
   AnalysisResult out;
   out.bandwidth = DetectBandwidth(deg, sr);
-  const auto [delay_ms, drift_ppm] = EstimateDelayAndDrift(ref, deg, sr, options.max_delay_ms);
-  out.delay_ms = delay_ms;
-  out.clock_drift_ppm = drift_ppm;
-  const long global_delay = static_cast<long>(std::llround(delay_ms * sr / 1000.0));
+  out.delay_ms =
+      pair.alignment.global_delay_samples * 1000.0 / std::max(1, sr);
+  out.clock_drift_ppm = pair.alignment.clock_drift_ppm;
+  out.alignment_confidence = pair.alignment.mean_confidence;
 
   const size_t frame = static_cast<size_t>(std::max(1, options.frame_ms * sr / 1000));
   const size_t hop = static_cast<size_t>(std::max(1, options.hop_ms * sr / 1000));
@@ -373,26 +373,33 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   double dropout_start = 0.0;
   int dropout_frames = 0;
   int active_frames = 0;
+  int lost_active_frames = 0;
 
   for (size_t rb = 0; rb + frame <= ref.size(); rb += hop) {
     const double time_s = static_cast<double>(rb) / sr;
-    long expected = static_cast<long>(rb) + global_delay;
-    expected += static_cast<long>(std::llround(time_s * drift_ppm * 1e-6 * sr));
+    const double ref_energy = Rms(ref, rb, rb + frame);
+    const bool ref_active = Db(ref_energy + 1e-9) >= vad_db;
+    if (!ref_active) continue;
 
-    long best_db = expected;
-    FrameStats best = CompareFrame(ref, deg, rb, best_db, frame, sr, vad_db);
-    if (best.active && options.enable_local_alignment && best.energy_deg > 0.20 * best.energy_ref) {
-      const int local = std::max(1, sr * 10 / 1000);
-      for (int delta = -local; delta <= local; delta += std::max(1, sr / 1000)) {
-        const long candidate = expected + delta;
-        FrameStats cur = CompareFrame(ref, deg, rb, candidate, frame, sr, vad_db);
-        if (cur.active && cur.similarity > best.similarity) {
-          best = cur;
-          best_db = candidate;
-        }
-      }
+    const long best_db = static_cast<long>(
+        std::llround(pair.alignment.MapReferenceSample(rb)));
+    FrameStats best;
+    if (!pair.alignment.Covers(rb, frame, deg.size())) {
+      // Out-of-range aligned active reference material is lost speech. Older
+      // versions silently skipped it, which could hide leading/trailing loss.
+      best.active = true;
+      best.energy_ref = ref_energy;
+      best.energy_deg = 0.0;
+      best.similarity = 0.0;
+      best.missing = 1.0;
+      best.added = 0.0;
+      best.coloration = 0.0;
+      best.discontinuity = 1.0;
+      ++lost_active_frames;
+    } else {
+      best = CompareFrame(ref, deg, rb, best_db, frame, sr, vad_db);
+      best.active = true;
     }
-    if (!best.active) continue;
     ++active_frames;
     misses.push_back(best.missing);
     adds.push_back(best.added);
@@ -425,6 +432,21 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   }
 
   out.active_speech_seconds = active_frames * options.hop_ms / 1000.0;
+  if (active_frames > 0) {
+    out.active_coverage_fraction =
+        1.0 - static_cast<double>(lost_active_frames) / active_frames;
+    out.lost_active_speech_fraction =
+        static_cast<double>(lost_active_frames) / active_frames;
+  }
+  const auto active_levels = MeasureMatchedActiveLevel(
+      pair, options.frame_ms, options.hop_ms, options.vad_relative_db);
+  out.active_level_reference_db = active_levels.reference_db;
+  out.active_level_degraded_db = active_levels.degraded_db;
+  // Coverage computed by the matched-level path also includes the exact
+  // piecewise alignment map and is therefore the authoritative coverage value.
+  out.active_coverage_fraction = active_levels.active_coverage_fraction;
+  out.lost_active_speech_fraction = active_levels.lost_active_speech_fraction;
+
   if (active_frames == 0) {
     out.mos = 1.0;
     out.confidence = 0.0;
@@ -460,7 +482,8 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
   const double snr_proxy = speech_db - noise_floor_db;
   const double noise_pen = Clamp((28.0 - snr_proxy) / 28.0, 0.0, 1.0) * 0.65
                          + out.added_disturbance * 0.35;
-  const double loud_pen = Clamp(mean(level_diffs) / 18.0, 0.0, 1.0);
+  const double loud_pen =
+      Clamp(active_levels.delta_db / 18.0, 0.0, 1.0);
   const double clip_pen = Clamp(out.clipping_ratio * 40.0, 0.0, 1.0);
 
   out.dimensions.coloration = Clamp(5.0 - 4.0 * col_pen, 1.0, 5.0);
@@ -489,7 +512,11 @@ AnalysisResult Analyzer::Analyze(const AudioBuffer& reference,
 
   const double active_factor = Clamp(out.active_speech_seconds / 3.0, 0.0, 1.0);
   const double align_factor = Clamp(mean(similarities), 0.0, 1.0);
-  out.confidence = Clamp(0.25 + 0.45 * active_factor + 0.30 * align_factor, 0.0, 1.0);
+  out.confidence = Clamp(
+      0.15 + 0.30 * active_factor + 0.20 * align_factor +
+      0.20 * out.alignment_confidence +
+      0.15 * out.active_coverage_fraction,
+      0.0, 1.0);
   return out;
 }
 
@@ -521,7 +548,12 @@ std::string ToJson(const AnalysisResult& r) {
     << ",\"bandwidth\":\"" << ToString(r.bandwidth) << "\""
     << ",\"delay_ms\":" << r.delay_ms
     << ",\"clock_drift_ppm\":" << r.clock_drift_ppm
+    << ",\"alignment_confidence\":" << r.alignment_confidence
     << ",\"active_speech_seconds\":" << r.active_speech_seconds
+    << ",\"active_coverage_fraction\":" << r.active_coverage_fraction
+    << ",\"lost_active_speech_fraction\":" << r.lost_active_speech_fraction
+    << ",\"active_level_reference_db\":" << r.active_level_reference_db
+    << ",\"active_level_degraded_db\":" << r.active_level_degraded_db
     << ",\"clipping_ratio\":" << r.clipping_ratio
     << ",\"missing_disturbance\":" << r.missing_disturbance
     << ",\"added_disturbance\":" << r.added_disturbance
