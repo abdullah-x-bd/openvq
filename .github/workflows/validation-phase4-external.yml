@@ -47,17 +47,24 @@ jobs:
           from remotezip import RemoteZip
           from pathlib import Path
 
-          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
           out=Path("validation/phase4/external")
           out.mkdir(parents=True,exist_ok=True)
-          wanted=("NISQA_TEST_FOR/","NISQA_TEST_NSC/")
-          with RemoteZip(url) as z:
-              names=z.namelist()
-              for fam in wanted:
+
+          # Zenodo mirror reliably exposes TEST_FOR. The official TU Berlin
+          # primary archive is used for TEST_NSC because the Zenodo mirror's
+          # central directory does not currently expose the NSC folder.
+          sources = {
+              "NISQA_TEST_FOR/": "https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1",
+              "NISQA_TEST_NSC/": "https://depositonce.tu-berlin.de/bitstream/11303/13012.5/9/NISQA_Corpus.zip",
+          }
+
+          for fam, url in sources.items():
+              with RemoteZip(url) as z:
+                  names=z.namelist()
                   matches=[n for n in names if fam in n and not n.endswith("/")]
-                  print(fam, "files", len(matches))
+                  print(fam, "files", len(matches), "source", url)
                   if not matches:
-                      raise SystemExit(f"no files found for {fam}")
+                      raise SystemExit(f"no files found for {fam} at {url}")
                   for name in matches:
                       z.extract(name,path=out)
           PY
