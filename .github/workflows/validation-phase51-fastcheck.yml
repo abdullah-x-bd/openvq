@@ -1,0 +1,76 @@
+name: validation-phase51-fastcheck
+
+on:
+  push:
+    branches:
+      - "validation/phase5.1-measurement-repair"
+    paths:
+      - "validation/phase51_evaluate.py"
+      - "validation/engineering_matrix_real.py"
+      - ".github/workflows/validation-phase51-fastcheck.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fastcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy scipy scikit-learn huggingface_hub openpyxl
+      - name: Build repaired analyzer
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Reuse latest Phase 5.1 feature artifact
+        run: |
+          mkdir -p validation/phase51
+          gh run download 36213797185 --repo abdullah-x-bd/openvq \
+            --name openvq-phase51 --dir /tmp/phase51-old
+          cp /tmp/phase51-old/*-features.csv validation/phase51/
+          cp /tmp/phase51-old/engineering-features.csv validation/phase51/
+      - name: Re-run fixed-evidence evaluator
+        run: |
+          python validation/phase51_evaluate.py \
+            --dataset tcd=validation/phase51/tcd-features.csv \
+            --dataset nisqa_p501=validation/phase51/p501-features.csv \
+            --dataset nisqa_test_for=validation/phase51/test-for-features.csv \
+            --dataset openace=validation/phase51/openace-features.csv \
+            --dataset tmhint=validation/phase51/tmhint-features.csv \
+            --engineering validation/phase51/engineering-features.csv \
+            --out validation/phase51/phase51-report.json \
+            --cpp-out validation/phase51/phase51_model.inc
+      - name: Download TCD for corrected real-speech engineering suite
+        run: |
+          mkdir -p validation/phase51/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa \
+            TCD-VOIP.zip --local-dir validation/phase51/tcd
+          unzip -q validation/phase51/tcd/TCD-VOIP.zip \
+            -d validation/phase51/tcd/extracted
+          python validation/tcd_prepare.py \
+            validation/phase51/tcd/extracted validation/phase51/tcd/manifests
+      - name: Run corrected real-speech suite
+        run: |
+          python validation/engineering_matrix_real.py \
+            validation/phase51/tcd/manifests/all.csv \
+            --cli ./build/openvq_cli \
+            --out validation/phase51/engineering-real.json --references 6
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase51-fastcheck
+          path: |
+            validation/phase51/phase51-report.json
+            validation/phase51/phase51_model.inc
+            validation/phase51/engineering-real.json
