@@ -19,6 +19,16 @@ struct AdvancedDiagnostics {
   double choppiness_score = 0.0;
   // Residual energy not explained by the direct path or detected echo.
   double residual_intrusion = 0.0;
+
+  // Phase 5.1 richer evidence. These preserve temporal/event information that
+  // the original 19-feature mapper discarded.
+  double similarity_p10 = 0.0;
+  double similarity_p50 = 0.0;
+  double discontinuity_p90 = 0.0;
+  double longest_bad_interval_ms = 0.0;
+  double severe_frame_fraction = 0.0;
+  double alignment_coverage = 0.0;
+  double alignment_confidence = 0.0;
 };
 
 struct AdvancedAnalysisResult {
