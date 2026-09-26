@@ -1,105 +1,72 @@
-# Phase 4 robust fusion
+# Phase 4 robust native-first fusion
 
-## Objective
+**Status: historical milestone. Phase 4 is frozen and failed its external generalization gate.**
 
-Phase 4 fixes the generalization failure exposed by EARS-EMO-OpenACE without hiding or rewriting the Phase 3 result.
+Phase 4 was created after the frozen Phase 3 fusion failed OpenACE.
 
-The design target is not to make one benchmark look good. The target is a native OpenVQ model that predicts human quality across distinct domains while remaining physically sensible on known telecom degradations.
+Its central change was to make native OpenVQ measurements the main score and treat external perceptual experts as optional, fallible evidence.
 
-## Why Phase 3 failed
+## Main lessons
 
-Frozen Phase 3 gave too much influence to speech-mode ViSQOL. On OpenACE, speech-mode ViSQOL was weak and the combined OpenVQ score collapsed.
+1. Native OpenVQ features contained substantial useful codec-quality information.
+2. Fixed expert weighting from Phase 3 was fragile.
+3. Unconstrained learned mappings could produce physically wrong trends.
+4. Explicit engineering inequalities were necessary.
+5. Passing engineering tests did not guarantee cross-domain subjective generalization.
 
-The forensic run showed that this was a fusion problem rather than a lack of native information:
-
-- Phase 3 speech-expert contribution represented about 68.5 percent of the variable penalty on OpenACE.
-- Native-only OpenVQ features reached Pearson 0.9065 and Spearman 0.8529 in a leave-one-speaker-out diagnostic model.
-- The two ViSQOL experts alone reached Pearson 0.6659 and Spearman 0.6379.
-
-Those values are development evidence, not untouched validation.
-
-## Selected Phase 4 candidate
-
-Model ID:
+## Frozen Phase 4 candidate
 
 `phase4-native-poly2-constrained-2026-09-25-v3`
 
-Development data:
+Frozen source:
 
-- TCD-VoIP: 384 samples
-- NISQA TEST P501: 240 samples
-- EARS-EMO-OpenACE: 144 samples
+`d530382d6161d0a5dc3d019782192a047982f839`
 
-The native predictor uses 19 normalized OpenVQ-native features plus all degree-two products.
+The candidate passed its deterministic engineering suite before external scoring.
 
-The three subjective datasets receive equal total fitting weight.
+## External NISQA TEST_FOR
 
-### Engineering constraints
+n = 240:
 
-The regression is fitted under explicit linear inequality constraints generated from the deterministic engineering matrix.
+- Pearson 0.6148
+- Spearman 0.5892
+- RMSE 0.7503 MOS
+- MAE 0.5878 MOS
+- bias +0.1005 MOS
 
-The fitted model must satisfy:
+Predeclared gate:
 
-- identity MOS at least 4.5
-- supported sample-rate identity MOS at least 4.2
-- pure-delay score change no larger than 0.45 MOS
-- non-increasing quality with worsening dropout duration
-- non-increasing quality with more repeated dropouts
-- non-increasing quality with worsening additive noise
-- non-increasing quality with stronger low-pass restriction
-- non-increasing quality with stronger clipping
-- non-increasing quality with attenuation
-- non-increasing quality with clock drift
-- non-increasing quality with time-scale distortion
-- non-increasing quality with the predefined mixed-impairment severity
+- Pearson >= 0.70
+- Spearman >= 0.70
+- RMSE <= 0.80 MOS
 
-These constraints are development priors. They do not substitute for subjective validation.
+Result:
 
-### Model selection
+failed correlation criteria.
 
-Five-fold grouped cross-validation is used. TCD conditions and OpenACE speakers are kept grouped. The selected ridge regularization is alpha 3.0.
+## TMHINT historical fallback
 
-The optional expert layer uses the median of native quality, ViSQOL speech quality and ViSQOL audio quality, with the expert consensus capped at 40 percent of the final score.
+A second holdout was used when the public NISQA archive did not expose the documented TEST_NSC folder.
 
-Primary external validation remains native-only.
+Historical Phase 4 correlation result on 1,455 paired TMHINT files:
 
-### Grouped development cross-validation
+- Pearson 0.2116
+- Spearman 0.2580
 
-| Dataset | Native Pearson | Native Spearman | Optional-expert Pearson | Optional-expert Spearman |
-| --- | ---: | ---: | ---: | ---: |
-| NISQA P501 | 0.7099 | 0.7092 | 0.7542 | 0.7453 |
-| OpenACE | 0.8403 | 0.8143 | 0.8584 | 0.8319 |
-| Full TCD | 0.8068 | 0.8057 | 0.8292 | 0.8249 |
+Phase 5.1 later found that the downloaded archive is the original TMHINT-QI release and that the historical workflow incorrectly transformed already-1-to-5 listener scores.
 
-These are development cross-validation results. They are not untouched external validation.
+Therefore the correlations remain useful historical diagnostics, while the historical absolute-error values are not corrected metrics.
 
-The important improvement over Phase 3 is that the candidate no longer needs a fixed dominant ViSQOL expert and is mathematically prevented from learning several obvious engineering reversals.
+## Final interpretation
 
-## ViSQOL relationship
+Phase 4 solved an engineering-behavior problem but not the generalization problem.
 
-Phase 4 is native-first.
+It is retained for reproducibility and should not be described as a general POLQA replacement.
 
-The native score requires no ViSQOL input.
+Phase 5 and Phase 5.1 are the direct consequences of this result.
 
-If both ViSQOL experts are supplied, they provide a bounded secondary consensus correction. A single expert cannot determine the result.
+See:
 
-## External validation rule
-
-OpenACE and NISQA P501 have influenced Phase 4 development and are no longer untouched holdouts.
-
-The next Phase 4 claim must use subjective material not used for fitting, feature selection, model selection, threshold selection or engineering tuning.
-
-The frozen external protocol is in `validation/PHASE4_EXTERNAL_PROTOCOL.md`.
-
-## Product implication
-
-Until Phase 4 passes untouched external validation, OpenVQ should not be marketed as generally equivalent to or better than POLQA.
-
-It can already be integrated experimentally in a drive-test product for:
-
-- native OpenVQ quality scoring
-- diagnostic dimensions
-- side-by-side field collection
-- validation data generation
-
-A broad POLQA-replacement claim requires the external generalization gate and then a lawful paired POLQA comparison.
+- `docs/VALIDATION_HISTORY.md`
+- `docs/PHASE5_CROSS_DOMAIN.md`
+- `docs/PHASE5_1_RESULTS.md`
