@@ -82,13 +82,18 @@ jobs:
 
       - name: Recreate NISQA P501 and TEST_FOR audio
         run: |
-          python - <<'PY'
+          set -e
+          success=0
+          for attempt in 1 2 3 4 5; do
+            echo "NISQA remote extraction attempt $attempt/5"
+            rm -rf validation/phase6/data/p501 validation/phase6/data/test-for
+            mkdir -p validation/phase6/data/p501 validation/phase6/data/test-for
+            if python - <<'PY'
           from remotezip import RemoteZip
           from pathlib import Path
           url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
           roots={"NISQA_TEST_P501/":Path("validation/phase6/data/p501"),
                  "NISQA_TEST_FOR/":Path("validation/phase6/data/test-for")}
-          for p in roots.values():p.mkdir(parents=True,exist_ok=True)
           with RemoteZip(url) as z:
               names=z.namelist()
               for token,out in roots.items():
@@ -96,6 +101,13 @@ jobs:
                   if not mm:raise SystemExit("missing "+token)
                   for n in mm:z.extract(n,path=out)
           PY
+            then
+              success=1
+              break
+            fi
+            sleep $((attempt * 20))
+          done
+          test "$success" -eq 1
           python validation/nisqa_holdout_prepare.py validation/phase6/data/p501 \
             validation/phase6/data/p501.csv --family NISQA_TEST_P501 --expected 240
           python validation/nisqa_holdout_prepare.py validation/phase6/data/test-for \
