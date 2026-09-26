@@ -3,7 +3,7 @@ project(openvq VERSION 0.1.0 LANGUAGES CXX)
 option(OPENVQ_BUILD_TESTS "Build OpenVQ tests" ON)
 option(OPENVQ_BUILD_CLI "Build OpenVQ CLI" ON)
 
-add_library(openvq STATIC src/openvq.cpp src/calibration.cpp src/advanced.cpp src/hybrid.cpp src/phase4.cpp)
+add_library(openvq STATIC src/openvq.cpp src/preprocessing.cpp src/calibration.cpp src/advanced.cpp src/hybrid.cpp src/phase4.cpp)
 target_include_directories(openvq PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(openvq PUBLIC cxx_std_17)
 if(MSVC)
