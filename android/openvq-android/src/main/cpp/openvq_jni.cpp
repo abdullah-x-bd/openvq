@@ -2,7 +2,8 @@
 #include <exception>
 #include <string>
 #include <vector>
-#include "openvq/advanced.h"\n#include "openvq/trace.h"
+#include "openvq/advanced.h"
+#include "openvq/trace.h"
 
 namespace {
 openvq::AudioBuffer FromShortArray(
