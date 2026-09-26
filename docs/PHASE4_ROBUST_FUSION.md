@@ -103,3 +103,32 @@ It can already be integrated experimentally in a drive-test product for:
 - validation data generation
 
 A broad POLQA-replacement claim requires the external generalization gate and then a lawful paired POLQA comparison.
+
+
+## Frozen v3 external outcome
+
+The final frozen Phase 4 candidate was:
+
+`phase4-native-poly2-constrained-2026-09-25-v3`
+
+It passed all engineering gates, but failed both external generalization tests that were actually scored.
+
+NISQA TEST_FOR:
+
+- n = 240
+- Pearson = 0.6148
+- Spearman = 0.5892
+- RMSE = 0.7503 MOS
+- predeclared gate = failed
+
+TMHINT-QI version II full-reference subset:
+
+- n = 1,455
+- Pearson = 0.2116
+- Spearman = 0.2580
+- RMSE = 2.1336 MOS
+- predeclared gate = failed
+
+TEST_NSC was not scored because the currently published NISQA archive endpoints did not expose the documented NSC directory.
+
+The Phase 4 model is frozen permanently with these results. Any attempt to address these failures is Phase 5 work and requires a new model ID and a new untouched final corpus.
