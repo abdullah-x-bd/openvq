@@ -1,8 +1,23 @@
 # OpenVQ
 
-OpenVQ is a source-available, full-reference speech-quality engine for telecom and drive-test applications. It is an independently derived perceptual quality system with optional Google ViSQOL input, telecom-oriented diagnostics, a native C++ core, and Android bindings.
+OpenVQ is a source-available, full-reference speech-quality engine for telecom and drive-test applications. It is an independently derived perceptual quality system with a native C++ core, telecom-oriented diagnostics, Android bindings, and optional external expert inputs such as Google ViSQOL.
 
 OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equivalence or superiority must be established through independent listening-test validation.
+
+## Is OpenVQ based on ViSQOL?
+
+No. The native OpenVQ analyzer does not call ViSQOL and does not reimplement ViSQOL.
+
+OpenVQ independently computes its own reference/degraded alignment, bandwidth detection, clock drift, perceptual spectral disturbance, ERB-band similarity, temporal-envelope similarity, modulation similarity, missing and added disturbance, coloration, noisiness, discontinuity, loudness mismatch, clipping, bad-section severity, echo, choppiness, and residual-intrusion diagnostics.
+
+ViSQOL entered the project later as an optional external expert:
+
+- Phase 1 and Phase 2 developed the native OpenVQ signal analysis and telecom diagnostics.
+- Phase 3 added two separately computed Google ViSQOL v3.3.3 outputs, speech mode and audio mode, as expert features in a learned monotonic fusion.
+- The frozen Phase 3 model therefore depends partly on ViSQOL, but OpenVQ as a system is not a ViSQOL wrapper.
+- OpenACE external validation showed that the Phase 3 fusion trusted the speech-mode expert too strongly outside its development distribution. Phase 4 is redesigning this expert fusion around reliability gating while retaining the native OpenVQ analyzer as the anchor.
+
+See `docs/ARCHITECTURE.md`, `docs/VALIDATION_HISTORY.md`, and `docs/PHASE4_ROBUST_FUSION.md`.
 
 ## Implemented
 
@@ -29,16 +44,18 @@ OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equiv
 - spectral-tilt error
 - active-level error
 - worst-interval pooling
+- echo detection
+- choppiness detection
+- residual-intrusion analysis
 - monotonic MOS aggregation
 - trainable base and advanced fusion weights
-- optional ViSQOL expert penalty
+- optional external ViSQOL expert inputs
 - confidence estimate
 - JSON CLI output
 - per-frame quality traces
 - deterministic degradation generator
 - human-MOS feature extraction
-- two-stage human-MOS calibration
-- held-out benchmarking against human MOS, ViSQOL, and optional licensed POLQA scores
+- held-out benchmarking against human MOS, ViSQOL, and optional lawful POLQA scores
 - Android JNI and Kotlin API
 - native regression tests and GitHub Actions CI
 
@@ -48,17 +65,23 @@ OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equiv
     cmake --build build --parallel
     ctest --test-dir build --output-on-failure
 
-Analyze two WAV files:
+Analyze two WAV files with native OpenVQ:
 
     ./build/openvq_cli reference.wav degraded.wav
 
-Use an independently computed ViSQOL score as an optional expert input:
+Run the native-first Phase 4 candidate with no external expert:
 
-    ./build/openvq_cli reference.wav degraded.wav --visqol-score 4.21
+    ./build/openvq_cli reference.wav degraded.wav --phase4
 
-Use fitted human-MOS calibration:
+Run Phase 4 with optional independently computed ViSQOL experts:
 
-    ./build/openvq_cli reference.wav degraded.wav --calibration openvq-final.calibration
+    ./build/openvq_cli reference.wav degraded.wav --phase4 \
+        --visqol-speech-score 4.10 \
+        --visqol-audio-score 4.25
+
+Phase 4 remains native-first. When both experts are supplied they can influence only the capped robust consensus term.
+
+For reproducibility, the frozen Phase 3 hybrid remains available when ViSQOL speech and audio scores are supplied without `--phase4`.
 
 ## Human-MOS calibration
 
@@ -66,7 +89,7 @@ Start with a training manifest:
 
     reference,degraded,human_mos,visqol_mos,polqa_mos
 
-The ViSQOL and POLQA columns are optional. POLQA values are only benchmark data when lawfully available. Human MOS is the target.
+The ViSQOL and POLQA columns are optional. POLQA values are benchmark data only when lawfully available. Human MOS is the target.
 
 Extract the initial feature table:
 
@@ -92,11 +115,11 @@ Evaluate only on a separate held-out manifest:
     python3 python/benchmark.py heldout.csv \
         --calibration openvq-final.calibration
 
-The benchmark reports RMSE, Pearson correlation, Spearman correlation, and mean bias. If the held-out manifest contains ViSQOL or licensed POLQA scores, the same metrics are reported for those baselines.
-
 ## ViSQOL
 
-Google ViSQOL is not vendored into this repository. `tools/visqol_score.py` uses a separately installed upstream ViSQOL package in 48 kHz audio mode. The resulting MOS can be supplied to OpenVQ as one optional expert feature. This keeps the upstream dependency, attribution and upgrades explicit.
+Google ViSQOL is not vendored into this repository. Validation workflows build a pinned upstream Google ViSQOL release separately. Its scores are optional external evidence and are kept distinct from the native OpenVQ implementation.
+
+The OpenACE result is an important warning against treating one ViSQOL mode as universally reliable. Phase 4 therefore treats external experts as fallible signals rather than as the definition of quality.
 
 ## Android
 
@@ -104,11 +127,23 @@ The `android/openvq-android` library exposes:
 
     val json = OpenVqNative.analyzePcm16(reference, degraded, 48000)
 
-The JNI layer uses the same advanced native analyzer as the CLI.
+The JNI layer uses the same native analyzer as the CLI.
 
 ## Scientific status
 
-The software implementation and calibration pipeline are complete engineering components. The checked-in default weights are bootstrap values. A claim that OpenVQ matches or exceeds POLQA requires a sufficiently large independent human listening-test corpus and a locked held-out evaluation set. The repository includes the machinery needed to perform that calibration and comparison.
+The engineering implementation is mature enough for reproducible benchmarking, but the scientific validation is still in progress.
+
+Frozen Phase 3 achieved strong results on its TCD and NISQA evaluations, then failed to generalize on the independent EARS-EMO-OpenACE codec benchmark. That failure is retained as part of the validation record rather than hidden or tuned away.
+
+Phase 4 has now completed its frozen external tests and failed the predeclared generalization gate.
+
+- NISQA TEST_FOR: Pearson 0.6148, Spearman 0.5892, RMSE 0.7503 MOS.
+- TMHINT-QI v2 full-reference subset: Pearson 0.2116, Spearman 0.2580, RMSE 2.1336 MOS.
+- OpenVQ is not demonstrated to be at POLQA parity.
+- Phase 4 v3 should not be described as a general replacement for POLQA.
+- Phase 5 is the next model family. TEST_FOR and TMHINT are development evidence for Phase 5 and cannot validate it.
+
+See `validation/LOCKED_POLQA_PROTOCOL.md` for the predeclared POLQA comparison criterion and `docs/VALIDATION_HISTORY.md` for the chronological evidence.
 
 ## Licensing
 

@@ -20,6 +20,7 @@ def main():
           "condition_id":row.get("condition_id",""),
           "family":row.get("family",""),
           "filename":row.get("filename",""),
+          "anchor_mos":float(obj["mos"]),
           "base":clamp((5-float(obj["base_mos"]))/4),
           "missing":clamp(float(obj["missing_disturbance"])),
           "added":clamp(float(obj["added_disturbance"])),

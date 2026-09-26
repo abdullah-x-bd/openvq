@@ -24,6 +24,7 @@ from pathlib import Path
 
 SR = 48000
 DURATION_S = 6.0
+CLI_EXTRA = []
 
 
 @dataclass
@@ -156,7 +157,7 @@ def time_scale(samples, factor):
 
 
 def run(cli, ref_path, deg_path):
-    raw = subprocess.check_output([cli, str(ref_path), str(deg_path)], text=True)
+    raw = subprocess.check_output([cli, str(ref_path), str(deg_path)] + CLI_EXTRA, text=True)
     obj = json.loads(raw)
     if not 1.0 <= float(obj["mos"]) <= 5.0:
         raise AssertionError(f"MOS outside range: {obj['mos']}")
@@ -232,7 +233,10 @@ def main():
     ap.add_argument("--cli", default="./build/openvq_cli")
     ap.add_argument("--out", default="validation-results.json")
     ap.add_argument("--fuzz", type=int, default=120)
+    ap.add_argument("--phase4", action="store_true")
     args = ap.parse_args()
+    global CLI_EXTRA
+    CLI_EXTRA = ["--phase4"] if args.phase4 else []
 
     cases = []
     failures = []
@@ -348,7 +352,7 @@ def main():
     sr_scores = [c.mos for c in cases if c.family == "sample_rate_identity"]
 
     summary = {
-        "candidate": "OpenVQ validation engineering matrix",
+        "candidate": "OpenVQ Phase 4 engineering matrix" if args.phase4 else "OpenVQ validation engineering matrix",
         "total_cases": len(cases),
         "fuzz_cases": args.fuzz,
         "clean_mos": clean_mos,
@@ -362,7 +366,7 @@ def main():
     # Hard engineering assertions. These do not claim subjective validity.
     if clean_mos < 4.5:
         failures.append(f"identity MOS too low: {clean_mos:.3f}")
-    if summary["delay_invariance_max_delta_from_clean"] > 0.45:
+    # Preserve the 0.45 MOS criterion while tolerating binary floating-point\n    # roundoff at the exact boundary (for example 0.4500000000000002).\n    if summary["delay_invariance_max_delta_from_clean"] > 0.45 + 1e-9:
         failures.append(
             "pure delay changes MOS by more than 0.45: "
             f"{summary['delay_invariance_max_delta_from_clean']:.3f}"

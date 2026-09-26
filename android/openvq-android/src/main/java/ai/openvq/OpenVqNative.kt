@@ -1,7 +1,26 @@
 package ai.openvq
 
 object OpenVqNative {
-    init { System.loadLibrary("openvq_android") }
+    init { System.loadLibrary("openvq_android")     /**
+     * Runs the native-first Phase 4 development candidate without ViSQOL.
+     */
+    external fun analyzePcm16Phase4(
+        reference: ShortArray,
+        degraded: ShortArray,
+        sampleRate: Int
+    ): String
+
+    /**
+     * Runs Phase 4 with the optional capped robust ViSQOL expert correction.
+     */
+    external fun analyzePcm16Phase4WithExperts(
+        reference: ShortArray,
+        degraded: ShortArray,
+        sampleRate: Int,
+        visqolSpeechMos: Double,
+        visqolAudioMos: Double
+    ): String
+}
 
     /** Returns the native diagnostic path without the external Phase-3 experts. */
     external fun analyzePcm16(reference: ShortArray, degraded: ShortArray, sampleRate: Int): String

@@ -93,6 +93,10 @@ struct AnalysisOptions {
   std::optional<double> visqol_speech_mos;
   std::optional<double> visqol_audio_mos;
   bool enable_frozen_phase3_hybrid = true;
+  // Phase 4 is an explicit development candidate. It is native-first and can
+  // run without ViSQOL. When both experts are supplied they receive only the
+  // capped robust-consensus influence recorded in the frozen model.
+  bool enable_phase4_candidate = false;
   Calibration calibration;
 };
 

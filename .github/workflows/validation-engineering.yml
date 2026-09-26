@@ -1,4 +1,7 @@
 name: validation-engineering
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   pull_request:
     paths:
@@ -26,9 +29,19 @@ jobs:
             --cli ./build/openvq_cli \
             --fuzz 160 \
             --out validation/out/engineering-results.json
+
+      - name: Phase 4 engineering validation matrix
+        run: |
+          python3 validation/engineering_matrix.py \
+            --cli ./build/openvq_cli \
+            --phase4 \
+            --fuzz 160 \
+            --out validation/out/engineering-phase4-results.json
       - name: Upload validation result
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: openvq-engineering-validation
-          path: validation/out/engineering-results.json
+          path: |
+            validation/out/engineering-results.json
+            validation/out/engineering-phase4-results.json

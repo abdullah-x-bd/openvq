@@ -1,0 +1,66 @@
+name: validation-phase4-train
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    branches:
+      - "validation/phase4-robust-fusion"
+    paths:
+      - "validation/phase4_train.py"
+      - "validation/engineering_matrix.py"
+      - ".github/workflows/validation-phase4-train.yml"
+  pull_request:
+    paths:
+      - "validation/phase4_train.py"
+      - "validation/engineering_matrix.py"
+      - ".github/workflows/validation-phase4-train.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check numpy scipy
+      - name: Build OpenVQ
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Reuse frozen development feature artifacts
+        run: |
+          mkdir -p validation/phase4/dev validation/phase4/openace
+          gh run download 36125312140 --repo abdullah-x-bd/openvq --name openvq-phase4-training --dir validation/phase4/dev
+          gh run download 36122422788 --repo abdullah-x-bd/openvq --name openvq-phase4-forensic --dir validation/phase4/openace
+          test -f validation/phase4/dev/tcd-train-features.csv
+          test -f validation/phase4/dev/tcd-dev-features.csv
+          test -f validation/phase4/dev/tcd-test-features.csv
+          test -f validation/phase4/dev/nisqa-features.csv
+          test -f validation/phase4/openace/openace-features.csv
+      - name: Generate engineering constraint cases
+        run: |
+          mkdir -p validation/phase4
+          python validation/engineering_matrix.py             --cli ./build/openvq_cli             --fuzz 0             --out validation/phase4/engineering-native.json
+      - name: Train constrained Phase 4 candidate
+        run: |
+          python validation/phase4_train.py             --tcd-train validation/phase4/dev/tcd-train-features.csv             --tcd-dev validation/phase4/dev/tcd-dev-features.csv             --tcd-test validation/phase4/dev/tcd-test-features.csv             --nisqa validation/phase4/dev/nisqa-features.csv             --openace validation/phase4/openace/openace-features.csv             --engineering validation/phase4/engineering-native.json             --out validation/phase4/phase4-model.json             --cpp-out validation/phase4/phase4_model.inc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-training-v3
+          path: |
+            validation/phase4/phase4-model.json
+            validation/phase4/phase4_model.inc
+            validation/phase4/engineering-native.json

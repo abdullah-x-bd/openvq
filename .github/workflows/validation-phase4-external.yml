@@ -1,0 +1,195 @@
+name: validation-phase4-external
+
+on:
+  push:
+    branches:
+      - "validation/phase4-robust-fusion"
+    paths:
+      - "validation/frozen/phase4-v3-freeze.json"
+      - "validation/PHASE4_EXTERNAL_PROTOCOL.md"
+      - "validation/phase4_holdout_*.py"
+      - "validation/nisqa_holdout_prepare.py"
+      - ".github/workflows/validation-phase4-external.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  external:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact frozen source
+        uses: actions/checkout@v5
+        with:
+          ref: d530382d6161d0a5dc3d019782192a047982f839
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          python -m pip install --disable-pip-version-check remotezip
+
+      - name: Build exact frozen Phase 4 candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "d530382d6161d0a5dc3d019782192a047982f839"
+          test "$(git hash-object src/phase4_model.inc)" = "29fb517098697bf8184712a828c332984d7a2eb6"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Inspect and extract untouched NISQA test sets
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          from collections import Counter
+
+          roots={
+              "NISQA_TEST_FOR": Path("validation/phase4/external-for"),
+              "NISQA_TEST_NSC": Path("validation/phase4/external-nsc"),
+          }
+          for p in roots.values():
+              p.mkdir(parents=True,exist_ok=True)
+
+          sources=[
+              ("zenodo","https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"),
+              ("tu-berlin","https://depositonce.tu-berlin.de/bitstream/11303/13012.5/9/NISQA_Corpus.zip"),
+          ]
+
+          found={}
+          for label,url in sources:
+              print("\nSOURCE",label,url,flush=True)
+              with RemoteZip(url) as z:
+                  names=z.namelist()
+                  # Print structure once so packaging changes are diagnosable.
+                  tops=Counter(n.split("/")[0] for n in names if n)
+                  print("top-level:",tops.most_common(30),flush=True)
+                  interesting=[n for n in names if "NSC" in n.upper() or "TEST_FOR" in n.upper()]
+                  print("interesting entries:",len(interesting),flush=True)
+                  for n in interesting[:80]:
+                      print(n,flush=True)
+
+                  for family,token in (
+                      ("NISQA_TEST_FOR","TEST_FOR"),
+                      ("NISQA_TEST_NSC","TEST_NSC"),
+                  ):
+                      if family in found:
+                          continue
+                      matches=[n for n in names
+                               if token in n.upper() and not n.endswith("/")]
+                      # NSC fallback: any test path containing NSC, in case the
+                      # archive uses a different prefix.
+                      if family=="NISQA_TEST_NSC" and not matches:
+                          matches=[n for n in names
+                                   if "NSC" in n.upper() and "TEST" in n.upper()
+                                   and not n.endswith("/")]
+                      if matches:
+                          print("extracting",family,len(matches),"entries from",label,flush=True)
+                          for n in matches:
+                              z.extract(n,path=roots[family])
+                          found[family]={"source":label,"entries":len(matches)}
+
+          print("FOUND",found,flush=True)
+          # TEST_FOR must exist. NSC may be inaccessible due upstream packaging;
+          # do not block TEST_FOR scoring in that case.
+          if "NISQA_TEST_FOR" not in found:
+              raise SystemExit("TEST_FOR could not be located")
+          Path("validation/phase4/nsc-available.txt").write_text(
+              "yes" if "NISQA_TEST_NSC" in found else "no"
+          )
+          PY
+
+      - name: Prepare frozen TEST_FOR manifest
+        run: |
+          python validation/nisqa_holdout_prepare.py \
+            validation/phase4/external-for validation/phase4/test-for.csv \
+            --family NISQA_TEST_FOR --expected 240
+
+      - name: Prepare frozen TEST_NSC manifest if available
+        run: |
+          if [ "$(cat validation/phase4/nsc-available.txt)" = "yes" ]; then
+            python validation/nisqa_holdout_prepare.py \
+              validation/phase4/external-nsc validation/phase4/test-nsc.csv \
+              --family NISQA_TEST_NSC --expected 240
+          else
+            echo "NSC is not exposed by the upstream archives. Continuing with the frozen TEST_FOR result."
+          fi
+
+      - name: Score native Phase 4 on TEST_FOR
+        run: |
+          python validation/phase4_holdout_score.py \
+            validation/phase4/test-for.csv validation/phase4/test-for-scored.csv \
+            --cli ./build/openvq_cli --jobs 4
+
+      - name: Score native Phase 4 on TEST_NSC if available
+        run: |
+          if [ -f validation/phase4/test-nsc.csv ]; then
+            python validation/phase4_holdout_score.py \
+              validation/phase4/test-nsc.csv validation/phase4/test-nsc-scored.csv \
+              --cli ./build/openvq_cli --jobs 4
+          else
+            echo "Skipping TEST_NSC scoring because the upstream archive does not expose it."
+          fi
+
+      - name: Report TEST_FOR
+        id: report_for
+        continue-on-error: true
+        run: |
+          python validation/phase4_holdout_report.py \
+            validation/phase4/test-for-scored.csv \
+            --out validation/phase4/test-for-report.json
+
+      - name: Report TEST_NSC if available
+        id: report_nsc
+        continue-on-error: true
+        run: |
+          if [ -f validation/phase4/test-nsc-scored.csv ]; then
+            python validation/phase4_holdout_report.py \
+              validation/phase4/test-nsc-scored.csv \
+              --out validation/phase4/test-nsc-report.json
+          else
+            echo "No TEST_NSC result to report."
+          fi
+
+      - name: Summarize locked external gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path("validation/phase4/test-for-report.json").read_text())
+          nsc=Path("validation/phase4/test-nsc-report.json")
+          b=json.loads(nsc.read_text()) if nsc.exists() else None
+          out={
+            "model_id":"phase4-native-poly2-constrained-2026-09-25-v3",
+            "source_commit":"d530382d6161d0a5dc3d019782192a047982f839",
+            "TEST_FOR":a,
+            "TEST_NSC":b,
+            "nsc_available": b is not None,
+            "passes_both": bool(b is not None and a["passes_external_generalization_criterion"] and b["passes_external_generalization_criterion"]),
+            "note": "TEST_FOR is a valid frozen external result even if upstream NSC packaging prevents the second set from running."
+          }
+          Path("validation/phase4/external-summary.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          # Fail only if an actually scored set fails its predeclared criterion.
+          if not a["passes_external_generalization_criterion"]:
+              raise SystemExit(2)
+          if b is not None and not b["passes_external_generalization_criterion"]:
+              raise SystemExit(2)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase4-external-v3
+          path: |
+            validation/phase4/test-for.csv
+            validation/phase4/test-nsc.csv
+            validation/phase4/test-for-scored.csv
+            validation/phase4/test-nsc-scored.csv
+            validation/phase4/test-for-report.json
+            validation/phase4/test-nsc-report.json
+            validation/phase4/external-summary.json

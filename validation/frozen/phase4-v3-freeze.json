@@ -1,0 +1,22 @@
+{
+  "model_id": "phase4-native-poly2-constrained-2026-09-25-v3",
+  "frozen_at_utc": "2026-09-26",
+  "source_commit": "d530382d6161d0a5dc3d019782192a047982f839",
+  "model_blob_path": "src/phase4_model.inc",
+  "model_blob_sha": "29fb517098697bf8184712a828c332984d7a2eb6",
+  "engineering_workflow_run": 36154157681,
+  "engineering_conclusion": "success",
+  "external_protocol": "validation/PHASE4_EXTERNAL_PROTOCOL.md",
+  "untouched_sets": [
+    "NISQA_TEST_FOR",
+    "NISQA_TEST_NSC"
+  ],
+  "primary_mode": "native Phase 4 only, no ViSQOL experts",
+  "criterion": {
+    "pearson_min": 0.70,
+    "spearman_min": 0.70,
+    "rmse_max": 0.80,
+    "must_pass_both_sets": true
+  },
+  "note": "This freeze was recorded before any OpenVQ Phase 4 score or aggregate result was examined on TEST_FOR or TEST_NSC."
+}
