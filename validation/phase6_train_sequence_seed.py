@@ -4,7 +4,7 @@ import argparse,csv,json
 from pathlib import Path
 import numpy as np
 import torch
-from phase6_train_sequence import MODES,fit,predict,metrics
+from phase6_train_sequence import MODES,fit,predict,metrics,validate_trace_rows
 
 def main():
     ap=argparse.ArgumentParser()
@@ -18,6 +18,7 @@ def main():
     a=ap.parse_args()
     torch.set_num_threads(max(1,min(2,torch.get_num_threads())))
     rows=list(csv.DictReader(open(a.sequences,newline="",encoding="utf-8")))
+    validate_trace_rows(rows)
     train=[r for r in rows if r["dataset"]!=a.held]
     test=[r for r in rows if r["dataset"]==a.held]
     if not train or not test:raise SystemExit("empty train/test split")

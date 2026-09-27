@@ -3,7 +3,7 @@
 import argparse,csv,json
 from pathlib import Path
 import torch
-from phase6_train_sequence import Model,fit
+from phase6_train_sequence import Model,fit,validate_trace_rows
 
 FINAL_SEED=20260926
 
