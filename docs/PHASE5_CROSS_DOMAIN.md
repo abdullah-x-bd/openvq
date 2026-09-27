@@ -1,5 +1,7 @@
 # Phase 5 cross-domain redesign
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 **Status: historical development milestone, superseded by Phase 5.1.**
 
 Phase 5 began because the frozen Phase 4 candidate failed untouched cross-domain validation.
