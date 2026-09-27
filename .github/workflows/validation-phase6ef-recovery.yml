@@ -1,12 +1,6 @@
 name: validation-phase6ef-recovery
 
 on:
-  push:
-    branches: ["validation/phase6"]
-    paths:
-      - ".github/workflows/validation-phase6ef-recovery.yml"
-      - "validation/phase6_train_sequence_seed.py"
-      - "validation/phase6_aggregate_fold_seeds.py"
   workflow_dispatch:
 
 permissions:
