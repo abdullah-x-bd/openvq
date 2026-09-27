@@ -40,6 +40,18 @@ The candidate was therefore **not promoted into the main CLI or Android MOS path
 
 Full evidence is recorded in [Phase 6.1 results](docs/PHASE6_1_RESULTS.md).
 
+## Phase 6.2 current result
+
+Corrected Trace V2 changes the sequence-model ranking. Under the unchanged five-corpus, three-seed selection protocol, `learned_bands` is now selected with:
+
+- worst held-corpus correlation 0.0894;
+- mean held-corpus correlation 0.4317;
+- worst normalized RMSE 0.3487.
+
+The corrected hybrid model collapses under the same protocol, which makes the hybrid training/fusion contract the current diagnostic target.
+
+See [Phase 6.2 results](docs/PHASE6_2_RESULTS.md).
+
 ## Why OpenVQ exists
 
 Full-reference speech-quality measurement is useful when the clean source signal is known and the received or processed version can be compared against it.

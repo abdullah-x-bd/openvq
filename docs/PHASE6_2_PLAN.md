@@ -44,14 +44,24 @@ Keep fixed:
 
 Only the trace changes.
 
+## 6.2D training-contract diagnostics
+
+The corrected-trace baseline is complete.
+
+The next controlled experiments are:
+
+- D1: measure batch/padding-context invariance without changing training;
+- D2: test fold-fitted global-feature z-score normalization in hybrid only.
+
+If D1 fails, a padding-safe temporal-normalization change is evaluated as its own ablation before property losses.
+
+If D2 does not recover hybrid, learned_bands remains the preferred representation for subsequent training work.
+
 ## Later Phase 6.2 work
 
-Training-pipeline repairs begin only after the corrected-trace baseline is recorded.
+After D1-D2:
 
-Planned follow-on work:
-
-- fold-fitted global-feature normalization;
-- batch-context invariance and masked normalization;
+- padding-safe temporal processing if required;
 - scoped identity, delay, and severity property losses;
 - protected real-speech engineering gates;
 - eligibility-first candidate selection;
