@@ -2,115 +2,89 @@
 
 OpenVQ is independently designed. It is not an implementation of POLQA and does not use ITU-T P.863 reference code.
 
-This page describes the native measurement path after the Phase 5.1 repair.
-
-## Processing path
+## Native processing path
 
 1. Decode supported WAV PCM/float input and downmix to mono.
-2. Prepare reference and degraded signals through the same shared preprocessing path.
-3. Resample to the internal fullband rate using the shared windowed-sinc resampler.
+2. Prepare reference and degraded signals through one shared frontend.
+3. Resample to 48 kHz with the shared windowed-sinc resampler.
 4. Remove DC through the shared preparation path.
-5. Estimate coarse global delay from envelope correlation.
-6. Estimate clock drift from timing measurements across multiple temporal regions.
-7. Build a bounded piecewise-continuous local alignment map.
-8. Prevent local alignment from making arbitrary jumps through low-correlation or missing-speech regions.
-9. Run reference voice activity analysis.
-10. Measure active-reference duration and how much of that active speech is covered by the degraded signal.
-11. Record lost-active-speech fraction explicitly.
-12. Measure matched active-speech reference and degraded levels.
-13. Compute frame spectral analysis and perceptual band representations.
+5. Estimate global delay.
+6. Detect essentially exact transport-only delay and preserve the global alignment when appropriate.
+7. Estimate clock drift.
+8. Build a bounded piecewise-continuous local alignment map.
+9. Compute local and global alignment confidence.
+10. Run reference activity analysis.
+11. Measure active coverage and lost active speech.
+12. Measure matched active levels.
+13. Compute spectral and perceptual-band representations.
 14. Calculate missing and added disturbance, coloration, level mismatch, discontinuity, and clipping.
-15. Compute ERB auditory comparison.
-16. Compare at 20 ms, 80 ms, and 200 ms resolutions using the shared alignment map.
-17. Measure temporal-envelope and modulation-spectrum similarity.
-18. Measure asymmetric disturbance, spectral tilt, active-level error, echo, choppiness, residual intrusion, and worst-interval severity.
-19. Pool interpretable utterance statistics.
-20. Return native diagnostics, confidence, alignment metadata, and score-path outputs.
+15. Compare 20 ms, 80 ms, and 200 ms temporal resolutions.
+16. Measure temporal-envelope and modulation-spectrum similarity.
+17. Measure asymmetric disturbance, spectral tilt, echo, choppiness, PLC-like repetition, residual intrusion, and worst-interval severity.
+18. Pool global interpretable statistics.
+19. Optionally export the Phase 6 local trace before utterance pooling.
+20. Return native diagnostics, alignment metadata, and research score-path outputs.
 
-## Why shared preprocessing matters
+## Frontend contract
 
-Before Phase 5.1, base and advanced analysis could make partially different frontend assumptions.
+The Phase 6A frontend is frozen as:
 
-Phase 5.1 introduced a single prepared signal pair used across both layers.
+`openvq-frontend-phase6a-2026-09-26-v1`
 
-This makes a feature difference more likely to represent an actual acoustic/perceptual difference rather than a frontend mismatch.
+The engineering contract includes active Release tests, periodic-delay regressions, six-reference real-speech checks, and independent transport-delay behavior.
 
-## Why bounded alignment matters
+## Global representations
 
-Full-reference quality metrics need to compensate for nuisance delay and small timing changes.
+`legacy19` retains the original 19 aggregate measurements.
 
-But overly flexible alignment can create a different problem: it can align around missing speech and make a true deletion look harmless.
+`rich-v2` contains 31 aggregate features.
 
-Phase 5.1 therefore uses a bounded continuous alignment map and records alignment confidence/coverage.
+`rich-v3` extends the representation with raw input clipping and is bound to the frozen Phase 6A frontend.
 
-The algorithm treats missing active reference speech as evidence.
+## Local sequence representation
 
-## Feature representations
+`openvq-trace-v1-2026-09-26` preserves local evidence at a 10 ms hop using:
 
-### legacy19
+- 64 reference auditory bands;
+- 64 degraded auditory bands;
+- reference activity;
+- valid coverage;
+- unmatched state;
+- local alignment confidence;
+- local similarity;
+- reference/degraded RMS;
+- mapped-time offset;
+- rich-v3 global side information.
 
-The exact 19 aggregate measurements used by the Phase 5 v1 family.
+Inactive and unmatched regions remain explicit rather than being silently discarded.
 
-It is retained for historical comparison and ablation.
+## Mapping research
 
-### rich-v2
+Phase 6B established that balanced neural mapping over global summaries improves known-domain development performance but does not solve leave-corpus-out transfer.
 
-The 19 legacy values plus:
+Phase 6E then compared three compact sequence models.
 
-1. lost active speech
-2. active coverage
-3. alignment uncertainty
-4. raw active-level delta
-5. similarity p10 loss
-6. similarity p50 loss
-7. discontinuity p90
-8. longest bad interval
-9. severe-frame fraction
-10. absolute clock drift
-11. raw clipping ratio
-12. confidence deficit
+The hybrid architecture won the frozen worst-corpus selection rule, but its full-development candidate failed engineering sanity. The current algorithm therefore does not use that neural candidate as the released quality mapping.
 
-The Phase 5.1 fixed-evidence experiment showed that rich-v2 improved the constrained model's weakest development correlation from 0.3897 to 0.4337.
+## Engineering constraints
 
-A small MLP using rich-v2 improved the weakest development correlation to 0.5304.
+Model quality is evaluated independently from subjective fit.
 
-These are development diagnostics, not product validation.
+A promotable model must preserve at least:
 
-## Mapping philosophy
+- high identity quality;
+- transport-delay invariance within the frozen tolerance;
+- worsening quality under stronger dropout;
+- worsening quality under repeated dropout;
+- worsening quality under stronger noise;
+- worsening quality under stronger low-pass restriction;
+- worsening quality under stronger clipping;
+- worsening quality under mixed degradation.
 
-The project has learned that a single scalar mapping must not be judged only on pooled fit.
+The Phase 6E hybrid candidate failed identity, dropout, dropout-count, mixed, and noise checks.
 
-A mapping can look strong when it has seen examples from every domain and still collapse on a new corpus.
+## Downstream scope
 
-For this reason, future mapping work must consider:
+RF, RTP, IMS, codec, and mobility telemetry are excluded from the perceptual input.
 
-- corpus-balanced fitting;
-- grouped validation;
-- leave-corpus-out validation;
-- processing-family transfer;
-- saturation;
-- independent engineering behavior.
-
-## Current product model status
-
-The Phase 5.1 constrained rich-v2 export is reproducible but is not promoted into the product runtime.
-
-The reason is scientific: held-out OpenACE and TMHINT transfer is poor.
-
-The small MLP is also diagnostic only.
-
-Phase 6 is expected to test learned representation/mapping approaches while preserving this repaired native measurement path.
-
-## Bandwidth and diagnostics
-
-The native engine continues to expose bandwidth classification and impairment dimensions independently of the research mapper.
-
-These diagnostics can remain operationally useful even while scalar MOS modeling evolves.
-
-## Separation from root-cause analysis
-
-RF, RTP, IMS, codec, and mobility telemetry are intentionally excluded from the perceptual speech-quality input.
-
-They belong in downstream root-cause models.
-
-This prevents non-audio network metadata from artificially improving an audio-quality score and keeps the perceptual metric independently testable.
+Those signals belong in downstream root-cause models, not in the full-reference perceptual quality metric.

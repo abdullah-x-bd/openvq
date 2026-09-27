@@ -362,3 +362,72 @@ What has been established:
 - current mappings still fail true unseen-corpus transfer.
 
 The next phase should address learned representation/generalization while keeping a new subjective corpus untouched until the candidate is frozen.
+
+
+## Phase 6 and Phase 6.1
+
+Phase 6 moved from pooled utterance summaries toward a frozen frontend, explicit source registry, local time-frequency traces, and compact sequence models.
+
+### Phase 6A
+
+Release-mode tests were made assertion-independent, Phase 4 tests were registered, alignment ambiguity was repaired, and the frontend was frozen.
+
+Canonical run: `36232604130`.
+
+The six-reference engineering suite completed with zero failures.
+
+### Phase 6B
+
+Fair balanced summary-model experiments confirmed that a small ANN can improve known-domain development performance while still failing true leave-one-corpus-out transfer.
+
+The balanced MLP produced held-out OpenACE Pearson -0.5280 and held-out TMHINT Pearson 0.1187.
+
+This rejected pooled summary features as the final Phase 6 architecture.
+
+### Phase 6C-D
+
+A canonical dataset registry and source-hash identity system were added.
+
+The Phase 6 trace retained local evidence before utterance pooling. All 2,463 development pairs were recreated and checked against the frozen Phase 6B evidence.
+
+Trace artifact: `10907723570`.
+
+### Phase 6E
+
+Three compact sequence architectures were compared with five completely held-corpus tests and three fixed seeds per test.
+
+The frozen selection rule chose the hybrid architecture.
+
+Hybrid held-out results:
+
+| Corpus | Pearson | Spearman | normalized RMSE |
+| --- | ---: | ---: | ---: |
+| P501 | 0.2312 | 0.1581 | 0.5061 |
+| TEST_FOR | -0.0456 | 0.0213 | 0.4035 |
+| OpenACE | 0.3990 | 0.4390 | 0.2362 |
+| TCD | 0.1798 | 0.1758 | 0.3351 |
+| TMHINT | -0.1287 | -0.1392 | 0.5453 |
+
+The positive held-out OpenACE result was a meaningful representation gain over the earlier reversal, but overall transfer and seed stability remained weak.
+
+### Phase 6F promotion attempt
+
+A full-development 263,009-parameter hybrid candidate was fitted and exported to ONNX.
+
+PyTorch-to-ONNX parity passed with maximum absolute MOS difference 0.00000906.
+
+The independent engineering gate failed:
+
+- identity MOS 2.393 below the 4.4 requirement;
+- two dropout reversals;
+- one dropout-count reversal;
+- one mixed reversal;
+- two noise reversals.
+
+The candidate was not bundled as a release model and was not integrated into the product score path.
+
+### Phase 6.1 status
+
+Phase 6.1 preserves the frontend and sequence representation while treating model training, calibration, domain robustness, and engineering constraints as the next active problem.
+
+URGENT 2026 remains untouched.

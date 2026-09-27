@@ -2,232 +2,147 @@
 
 ## Core rule
 
-Every scientific claim should be traceable to:
-
-- source commit;
-- model ID where applicable;
-- dataset source/revision;
-- manifest construction rule;
-- feature schema;
-- validation protocol;
-- GitHub Actions run;
-- result artifact;
-- hashes for critical generated evidence.
+Every scientific claim is tied to source, data identity, protocol, workflow run, artifact, and critical hashes.
 
 ## Historical freezes
 
-### Phase 3
-
-Model ID:
+Phase 3:
 
 `phase3-tcd-only-2026-09-24-f099129`
 
-Freeze:
-
-`validation/frozen/phase3-freeze.json`
-
-### Phase 4
-
-Frozen candidate:
+Phase 4:
 
 `phase4-native-poly2-constrained-2026-09-25-v3`
 
-Frozen source:
+Phase 5.1 canonical run:
 
-`d530382d6161d0a5dc3d019782192a047982f839`
+- source `4f96463411da8f9f6aecb370e8ac69ae2c228273`
+- run `36219037262`
+- artifact `10899193034`
+- artifact SHA-256 `7e1e244074520e3e9e620fc29a602b99b094c6592a4bb954407b3e98b4949426`
 
-The Phase 4 model is retained with its external failures and must not be retuned and described as the same frozen candidate.
+## Phase 6A frontend freeze
 
-## Phase 5.1 canonical record
+Frontend ID:
 
-Source commit:
+`openvq-frontend-phase6a-2026-09-26-v1`
 
-`4f96463411da8f9f6aecb370e8ac69ae2c228273`
+Record:
 
-Pull request:
+- source `d129658f084eaac28ed88f801c566ff2addb72f2`
+- run `36232604130`
+- artifact `openvq-phase6a-foundation`
+- artifact ID `10902877054`
+- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1c`
+- freeze file `validation/phase6/frontend-freeze.json`
 
-`#12 Phase 5.1: measurement and validation repair`
+## Phase 6B summary evidence
 
-Workflow:
+Feature schema:
 
-`.github/workflows/validation-phase51.yml`
+`openvq-rich-v3-2026-09-26-v1`
 
-Run:
+Record:
 
-`36219037262`
+- run `36233995161`
+- artifact `openvq-phase6b-summary`
+- artifact ID `10905043210`
+- artifact SHA-256 `8d5fefb87379862acf6385d0514d1ac0088c87762612a3c05601ff978a24d32b`
 
-Conclusion:
+This artifact is the canonical source for the 2,463-row Phase 6 development manifest and global features.
 
-`success`
+## Phase 6D trace evidence
 
-Artifact:
+Trace schema:
 
-`openvq-phase51`
+`openvq-trace-v1-2026-09-26`
 
-Artifact ID:
+Record:
 
-`10899193034`
+- run `36247385269`
+- artifact `openvq-phase6d-traces`
+- artifact ID `10907723570`
+- artifact SHA-256 `b4f709a6160a9de5ceb1afaa8f60e2e87a44c9a120688e97818d5a8e4bd80c40`
+- development trace provenance SHA-256 `cbd5c8874026142b065d352335083640000e507ce1ba364614c236e31319c8fc`
+- engineering trace provenance SHA-256 `ae6c65002093cb8f0a78b3829a25719467b53352e6009f57094b8e538c4f68b8`
 
-Artifact SHA-256:
+Every recreated waveform was checked against the Phase 6B manifest before trace export.
 
-`7e1e244074520e3e9e620fc29a602b99b094c6592a4bb954407b3e98b4949426`
+## Phase 6E/F sequence evidence
 
-The artifact contains:
+The original 15-job run completed 14 folds before the learned-bands P501 job reached the three-hour runner limit.
 
-- `phase51-report.json`
-- constrained model export
-- synthetic engineering report
-- real-speech engineering report
-- TCD/NISQA/OpenACE/TMHINT feature tables
-- manifests
-- TMHINT provenance
-- source/schema/evidence hashes
+Original run:
 
-## Phase 5.1 source hashes
+`36247385269`
 
-The canonical run records hashes in:
+Recovery split that missing fold into three independent fixed-seed jobs and then reconstructed the same ensemble result.
 
-`validation/phase51/provenance.sha256`
+Recovery run:
 
-Examples:
+`36284538942`
 
-- feature schema: `9b34a471da6f967fb7807d96e1b8c1311ccd89bb96d7476d7586dfbe02a92c58`
-- feature extractor: `9dff62050168ccbe243ab31c2af8e33111812c87a4500327d46ddd928b50e4f6`
-- evaluator: `ad95e07527359283b7a72b2a498169c07f6cc1b938c7d333290a39931cbc5d1d`
-- TMHINT preparer: `33020cfcfdc703340bc3b5ff9b87cc0381eb41d1df763fdd905645eaa145e37e`
-- synthetic engineering generator: `5a36685f6fc2babe5b386f0d3243c9c51dcc0a5c40e93d838521a3ca269014dc`
-- real-speech engineering generator: `def06fc822598adc293b189449692e20e952d75a5b53b853755c543b4cd73c8c`
+Candidate evidence artifact:
 
-## Phase 5.1 validation workflow
+- name `openvq-phase6ef-recovered-candidate`
+- ID `10921181778`
+- SHA-256 `3912c8581c907d779e37e9728c3144208f4a70e25b7547396c1730c774203068`
 
-The full workflow does the following in one reproducible run:
+Important file hashes:
 
-1. builds and tests the repaired native analyzer;
-2. downloads/prepares TCD;
-3. extracts NISQA P501 and TEST_FOR;
-4. downloads a pinned OpenACE revision;
-5. downloads and identifies TMHINT;
-6. extracts repaired legacy and rich features;
-7. runs the repaired synthetic engineering matrix;
-8. runs the independent real-speech engineering suite;
-9. runs fixed-evidence ablations;
-10. runs grouped, processing-family, and leave-corpus-out evaluation;
-11. records hashes;
-12. uploads all evidence;
-13. enforces engineering exit gates.
+- selection report `9c4f4a440e9f3c9ef4759b0015a5fc13f77a3dc9d4a25d695bb25eb734c95ae4`
+- ONNX `cea7b5e17cf5e7bf183e994cf7c8c24cf509f553d5d4c6ac5329bdb9b93ff7df`
+- PyTorch state `0bb206fbd64cc149e72d9aa4d33368d441019dea51a37a0914de5d663283c372`
+- final-fit report `0d06cd3eef8811e433a3b1df65578b37bd61d407f0221c3be2c1eba8e723cd86`
+- engineering report `cf8c8e9475c7f56511fb00ddc0b6836f89e2e6031326a851fb0c5e35d125d94d`
+- parity report `ec7a81ce9206bd242e1448db690bbf8f73732cd60a6c087757d15e25a19523ab`
 
-## Feature schemas
+## Final Phase 6.1 candidate status
 
-Phase 5.1 deliberately keeps both schemas.
+Selected architecture:
 
-### legacy19
+`hybrid`
 
-Used to isolate frontend repair from representation expansion.
+Parameters:
 
-### rich-v2
+263,009
 
-31 features: legacy19 plus 12 coverage, alignment, level, tail, drift, clipping, and confidence features.
+Full-development seed:
 
-Exact order is recorded in `phase51-report.json` under `selected_export.features`.
+`20260926`
 
-## Export status
+Rows:
 
-The constrained rich-v2 model export contains:
+2,463
 
-- exact feature order;
-- basis order;
-- normalization mean;
-- normalization scale;
-- coefficients;
-- solver iterations;
-- generated C++ include;
-- reference Python predictor.
+ONNX parity:
 
-The export is reproducible research evidence.
+pass, maximum absolute MOS difference 0.00000906 under tolerance 0.0001.
 
-It is not promoted into the main native CLI/Android MOS path because leave-corpus-out generalization is insufficient.
+Engineering promotion gate:
 
-## Main validation workflows
+fail.
 
-### Phase 5.1 full repair
+No immutable release bundle was created after the failure.
 
-`.github/workflows/validation-phase51.yml`
+## Reserved external validation
 
-### Phase 5.1 fast evaluator check
+URGENT 2026 subjective labels remain untouched.
 
-`.github/workflows/validation-phase51-fastcheck.yml`
+A failed engineering candidate is not eligible to consume the reserve.
 
-### Engineering matrix
+## Reporting rules
 
-`.github/workflows/validation-engineering.yml`
+Reports preserve:
 
-### Phase 3/ViSQOL historical reproduction
-
-`.github/workflows/validation-visqol-baseline.yml`
-
-### OpenACE historical benchmark
-
-`.github/workflows/validation-openace-polqa.yml`
-
-### Phase 4 forensics
-
-`.github/workflows/validation-phase4-forensic.yml`
-
-## Direct POLQA comparison
-
-Protocol:
-
-`validation/LOCKED_POLQA_PROTOCOL.md`
-
-Primary statistic:
-
-RMSE to human MOS.
-
-Predeclared Project OpenVQ non-inferiority margin:
-
-+0.10 MOS RMSE.
-
-A formal direct comparison requires lawful POLQA outputs for the exact same reference/degraded pairs.
-
-## Rules for future Phase 6 work
-
-A new model ID is required if any of these change:
-
-- input feature definition;
-- learned representation;
-- coefficients;
-- architecture;
-- normalization;
-- calibration mapping;
-- output clipping;
-- expert-gating rule.
-
-Development evaluation may use the five Phase 5.1 corpora.
-
-A new final holdout must not influence:
-
-- architecture selection;
-- hyperparameter selection;
-- preprocessing changes;
-- threshold changes;
-- calibration;
-- stopping decisions.
-
-URGENT 2026 remains untouched at the end of Phase 5.1.
-
-## Reporting rule
-
-Always report:
-
-- sample count;
-- Pearson;
-- Spearman;
-- absolute error on a meaningful common scale or clearly labelled normalized error;
-- bias where appropriate;
-- floor/ceiling saturation;
-- processing-family results;
-- leave-corpus-out results;
+- sample counts;
+- Pearson and Spearman;
+- valid absolute or normalized error;
+- bias;
+- saturation;
+- per-corpus and held-corpus results;
+- per-seed evidence;
 - engineering failures;
-- known evidence defects or errata.
+- data and artifact hashes.
 
-Do not report only the strongest metric.
+No failed candidate is silently replaced by a retuned model under the same identifier.
