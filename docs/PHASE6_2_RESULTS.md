@@ -106,9 +106,70 @@ URGENT 2026 remains untouched.
 
 ## 6.2D training-contract diagnostics
 
-The next controlled stage tests two issues independently:
+Canonical run:
 
-1. padding/batch-context invariance of the temporal network;
-2. fold-fitted z-score normalization of the rich-v3 global vector in hybrid.
+`36319146056`
 
-No property losses, new datasets, architecture scaling, or external reserve are introduced in this stage.
+### D1 padding-context diagnostic
+
+The original temporal models were not exactly invariant to zero-padding introduced by longer utterances in the same batch.
+
+Maximum absolute MOS differences:
+
+| Model | max absolute MOS delta | violations above 0.0001 MOS |
+| --- | ---: | ---: |
+| native temporal | 0.001072 | 22 |
+| learned bands | 0.000320 | 10 |
+| hybrid | 0.000221 | 3 |
+
+The effect is too small to explain the cross-domain failures, but it is a real inference-contract defect.
+
+Diagnostics artifact:
+
+- ID `10932370265`
+- SHA-256 `b2b154f0f9837a8b9f1bdb48b7eb8a65dddc9a5cf48f089af8b824615a2f1f4a`
+
+### D2 fold-fitted hybrid global normalization
+
+The rich-v3 global feature standard deviations span approximately 95.6 million to 1.
+
+Hybrid was rerun with z-score normalization fitted only on the allowed training rows for each fold.
+
+| Held corpus | Pearson | Spearman | normalized RMSE |
+| --- | ---: | ---: | ---: |
+| P501 | 0.7623 | 0.7538 | 0.1680 |
+| TEST_FOR | 0.6063 | 0.5493 | 0.1953 |
+| OpenACE | -0.4985 | -0.4066 | 0.3319 |
+| TCD | 0.5459 | 0.6503 | 0.2405 |
+| TMHINT | 0.1525 | 0.2256 | 0.2624 |
+
+Objective:
+
+- worst held-corpus correlation -0.4985;
+- mean held-corpus correlation 0.3006;
+- worst normalized RMSE 0.3319.
+
+Normalization materially rescues hybrid from the raw-fusion collapse, but it still performs substantially worse than corrected `learned_bands` because OpenACE remains strongly negative.
+
+Normalized-hybrid artifact:
+
+- ID `10932529605`
+- SHA-256 `d0667c42cfbccaca345feedcb8890d11e08f1177e4a5c844c3ceca33257c2fb4`
+
+### 6.2D conclusion
+
+The global scale mismatch was real but does not explain the whole hybrid failure.
+
+The batch-context defect is real but numerically small.
+
+Corrected `learned_bands` remains the preferred representation for the next controlled stage.
+
+## 6.2E padding-safe learned-bands ablation
+
+Phase 6.2E changes only the temporal padding/normalization contract of the current winning `learned_bands` architecture.
+
+The encoder masks padded frames after every convolution. The TCN masks padded frames after every stage and replaces BatchNorm1d with per-frame channel LayerNorm.
+
+Before training, the new model must pass the same-utterance-alone versus mixed-length-batch invariance gate at 0.0001 MOS.
+
+The same five held corpora and three fixed seeds are then rerun. No property losses, new data, global fusion, or external reserve are introduced.

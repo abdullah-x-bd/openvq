@@ -1,0 +1,111 @@
+name: validation-phase62e-padding-safe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase62_padding_safe.py"
+      - "validation/phase62_train_padding_safe_seed.py"
+      - "validation/phase62_padding_invariance.py"
+      - ".github/workflows/validation-phase62e-padding-safe.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TRACE_RUN_ID: "36306154897"
+  TRACE_ARTIFACT: "openvq-phase62-trace-v2"
+
+jobs:
+  padding_invariance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed diagnostic runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Prove padding-context invariance
+        run: |
+          python validation/phase62_padding_invariance.py             validation/phase6/sequence-cache-v2/sequences.csv             --out validation/phase6/phase62e-padding-invariance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase62e-padding-invariance
+          path: validation/phase6/phase62e-padding-invariance.json
+
+  padding_safe_seed:
+    needs: padding_invariance
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        held: [nisqa_p501, nisqa_test_for, openace, tcd, tmhint]
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Run padding-safe learned-bands seed
+        run: |
+          mkdir -p validation/phase6/phase62e-seeds
+          python validation/phase62_train_padding_safe_seed.py             validation/phase6/sequence-cache-v2/sequences.csv             --held "${{ matrix.held }}" --seed "${{ matrix.seed }}"             --max-epochs 80             --out "validation/phase6/phase62e-seeds/learned_bands_padding_safe__${{ matrix.held }}__${{ matrix.seed }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase62e-padding-safe-${{ matrix.held }}-${{ matrix.seed }}
+          path: validation/phase6/phase62e-seeds/*.json
+
+  aggregate_padding_safe:
+    needs: padding_safe_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install metric runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase62e-padding-safe-*
+          merge-multiple: true
+          path: validation/phase6/phase62e-seeds
+      - name: Reconstruct three-seed ensembles
+        run: |
+          mkdir -p validation/phase6/phase62e-folds
+          for held in nisqa_p501 nisqa_test_for openace tcd tmhint; do
+            python validation/phase6_aggregate_fold_seeds.py               --seed-report "validation/phase6/phase62e-seeds/learned_bands_padding_safe__${held}__20260926.json"               --seed-report "validation/phase6/phase62e-seeds/learned_bands_padding_safe__${held}__20260927.json"               --seed-report "validation/phase6/phase62e-seeds/learned_bands_padding_safe__${held}__20260928.json"               --out "validation/phase6/phase62e-folds/learned_bands_padding_safe__${held}.json"
+          done
+      - name: Aggregate padding-safe objective
+        run: |
+          args=()
+          for f in validation/phase6/phase62e-folds/*.json; do args+=(--report "$f"); done
+          python validation/phase6_aggregate_sequence.py "${args[@]}"             --out validation/phase6/phase62e-padding-safe-selection.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase62e-padding-safe
+          path: |
+            validation/phase6/phase62e-seeds/
+            validation/phase6/phase62e-folds/
+            validation/phase6/phase62e-padding-safe-selection.json

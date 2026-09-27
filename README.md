@@ -52,6 +52,8 @@ The corrected hybrid model collapses under the same protocol, which makes the hy
 
 See [Phase 6.2 results](docs/PHASE6_2_RESULTS.md).
 
+Phase 6.2D found two additional training-contract issues. The existing temporal models have a small padding-context dependence, and the raw rich-v3 globals span roughly 95.6 million to 1 in standard deviation. Fold-fitted normalization substantially rescues hybrid but leaves OpenACE negative, so corrected learned-bands remains the preferred representation. Phase 6.2E now tests a padding-safe learned-bands architecture before any property losses are introduced.
+
 ## Why OpenVQ exists
 
 Full-reference speech-quality measurement is useful when the clean source signal is known and the received or processed version can be compared against it.

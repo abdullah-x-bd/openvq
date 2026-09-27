@@ -57,11 +57,24 @@ If D1 fails, a padding-safe temporal-normalization change is evaluated as its ow
 
 If D2 does not recover hybrid, learned_bands remains the preferred representation for subsequent training work.
 
+## 6.2E padding-safe learned-bands
+
+D1 confirmed a small but real padding-context defect.
+
+Phase 6.2E therefore changes only the current winning learned-bands architecture:
+
+- mask padded frames after every spectral-encoder convolution;
+- mask padded frames after every TCN stage;
+- replace BatchNorm1d with per-frame channel LayerNorm;
+- require same-utterance batch-context invariance within 0.0001 MOS;
+- rerun the same five held corpora and three seeds.
+
+No property loss is introduced until this ablation is recorded.
+
 ## Later Phase 6.2 work
 
-After D1-D2:
+After 6.2E:
 
-- padding-safe temporal processing if required;
 - scoped identity, delay, and severity property losses;
 - protected real-speech engineering gates;
 - eligibility-first candidate selection;
