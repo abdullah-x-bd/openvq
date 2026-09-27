@@ -76,7 +76,7 @@ Phase 6A:
 
 - run `36232604130`
 - artifact `10902877054`
-- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1c`
+- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1`
 
 Phase 6B:
 
