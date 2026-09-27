@@ -6,7 +6,8 @@ from pathlib import Path
 import numpy as np
 from phase6_feature_schema import RICH_V3,FRONTEND_ID
 
-TRACE_SCHEMA="openvq-trace-v1-2026-09-26"
+TRACE_SCHEMA="openvq-trace-v2-2026-09-27"
+TRACE_IMPLEMENTATION_ID="openvq-trace-spectral-v2-fft-corrected-2026-09-27"
 
 def content_hash(*arrays):
     h=hashlib.sha256()
@@ -34,6 +35,8 @@ def main():
         obj=json.loads(subprocess.check_output([a.trace_cli,r["reference"],r["degraded"]],text=True))
         if obj["frontend_id"]!=FRONTEND_ID:raise RuntimeError("frontend ID mismatch")
         if obj["trace_schema_id"]!=TRACE_SCHEMA:raise RuntimeError("trace schema mismatch")
+        if obj.get("trace_implementation_id")!=TRACE_IMPLEMENTATION_ID:
+            raise RuntimeError("trace implementation mismatch")
         frames=obj["frames"];T=len(frames)
         ref=np.asarray([q["reference_bands_db"] for q in frames],np.float32)
         deg=np.asarray([q["degraded_bands_db"] for q in frames],np.float32)
@@ -55,6 +58,7 @@ def main():
         return {
           **r,"trace_path":str(p),"trace_content_sha256":h,"trace_frames":T,
           "frontend_id":FRONTEND_ID,"trace_schema_id":TRACE_SCHEMA,
+          "trace_implementation_id":TRACE_IMPLEMENTATION_ID,
           "feature_schema_id":fr.get("feature_schema_id",""),
         }
 
@@ -68,6 +72,7 @@ def main():
         w=csv.DictWriter(f,fieldnames=list(out[0]));w.writeheader();w.writerows(out)
     manifest_hash=hashlib.sha256(path.read_bytes()).hexdigest()
     meta={"frontend_id":FRONTEND_ID,"trace_schema_id":TRACE_SCHEMA,
+          "trace_implementation_id":TRACE_IMPLEMENTATION_ID,
           "feature_order":RICH_V3,"rows":len(out),"manifest_sha256":manifest_hash}
     (outdir/"trace-provenance.json").write_text(json.dumps(meta,indent=2)+"\n")
     print(json.dumps(meta,indent=2))

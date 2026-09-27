@@ -1,5 +1,7 @@
 # Phase 6.1 results
 
+> **Trace correctness erratum.** The Phase 6.1 sequence results below were generated with Trace V1, which has a confirmed FFT indexing defect in the trace-only spectral path. The numerical results remain historical development evidence, but all three sequence arms require reassessment with corrected Trace V2 before representation-level conclusions are treated as current. See [Phase 6.1 trace correctness erratum](PHASE6_1_TRACE_ERRATUM.md).
+
 ## Status
 
 Phase 6.1 is the current OpenVQ research milestone.

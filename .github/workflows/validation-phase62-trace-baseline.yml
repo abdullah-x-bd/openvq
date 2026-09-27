@@ -1,7 +1,22 @@
-name: validation-phase6de-sequence-historical
+name: validation-phase62-corrected-trace-baseline
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "src/trace.cpp"
+      - "src/trace_spectral.cpp"
+      - "src/trace_spectral.h"
+      - "include/openvq/trace.h"
+      - "tests/test_trace_spectral.cpp"
+      - "CMakeLists.txt"
+      - "validation/phase6_export_sequences.py"
+      - "validation/phase6_train_sequence.py"
+      - "validation/phase6_train_sequence_seed.py"
+      - "validation/phase6_aggregate_fold_seeds.py"
+      - "validation/phase6_aggregate_sequence.py"
+      - ".github/workflows/validation-phase62-trace-baseline.yml"
 
 permissions:
   actions: read
@@ -12,7 +27,7 @@ env:
   PHASE6B_ARTIFACT: "openvq-phase6b-summary"
 
 jobs:
-  traces:
+  trace_v2:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -40,11 +55,12 @@ jobs:
           python -m pip install --disable-pip-version-check \
             numpy soundfile huggingface_hub openpyxl remotezip pyyaml
 
-      - name: Build trace-capable frozen frontend
+      - name: Build and prove Trace V2 mathematics
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
+          ctest --test-dir build -R openvq_trace_spectral_tests --output-on-failure
           test -x ./build/openvq_trace_cli
 
       - name: Download canonical Phase 6B evidence
@@ -135,67 +151,86 @@ jobs:
             --input validation/phase6/baseline/tmhint-features-source.csv \
             --output validation/phase6/baseline/all-features-source.csv
 
-      - name: Export all Phase 6D native timelines
+      - name: Export all corrected Trace V2 development timelines
         run: |
           python validation/phase6_export_sequences.py \
             validation/phase6/baseline/canonical-manifest.csv \
             validation/phase6/baseline/all-features-source.csv \
-            validation/phase6/sequence-cache \
+            validation/phase6/sequence-cache-v2 \
             --trace-cli ./build/openvq_trace_cli --jobs 2
 
-      - name: Build independent learned-model engineering timelines
+      - name: Build corrected Trace V2 engineering timelines
         run: |
           python validation/phase6_engineering_pairs.py \
-            validation/phase6/model-engineering/audio \
-            validation/phase6/model-engineering/manifest.csv
+            validation/phase6/model-engineering-v2/audio \
+            validation/phase6/model-engineering-v2/manifest.csv
           python validation/phase6_extract_features.py \
-            validation/phase6/model-engineering/manifest.csv \
-            validation/phase6/model-engineering/features.csv \
+            validation/phase6/model-engineering-v2/manifest.csv \
+            validation/phase6/model-engineering-v2/features.csv \
             --dataset engineering --target-field human_mos --target-scale mos1to5 \
             --group-field group_id --system-field condition_id --cli ./build/openvq_cli
           python validation/phase6_export_sequences.py \
-            validation/phase6/model-engineering/manifest.csv \
-            validation/phase6/model-engineering/features.csv \
-            validation/phase6/model-engineering/cache \
+            validation/phase6/model-engineering-v2/manifest.csv \
+            validation/phase6/model-engineering-v2/features.csv \
+            validation/phase6/model-engineering-v2/cache \
             --trace-cli ./build/openvq_trace_cli --jobs 2
 
-      - name: Record Phase 6D evidence hashes
+      - name: Freeze corrected trace provenance
         run: |
           python - <<'PY'
-          import hashlib,json
+          import hashlib,json,os
           from pathlib import Path
           def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
-          p=Path("validation/phase6/sequence-cache/trace-provenance.json")
-          q=Path("validation/phase6/model-engineering/cache/trace-provenance.json")
-          out={"phase6b_run":36233995161,"phase6b_artifact":10905043210,
-               "phase6b_artifact_sha256":"8d5fefb87379862acf6385d0514d1ac0088c87762612a3c05601ff978a24d32b",
-               "development_trace_provenance_sha256":sha(p),
-               "engineering_trace_provenance_sha256":sha(q)}
-          Path("validation/phase6/phase6d-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
+          dev=Path("validation/phase6/sequence-cache-v2/trace-provenance.json")
+          eng=Path("validation/phase6/model-engineering-v2/cache/trace-provenance.json")
+          d=json.loads(dev.read_text())
+          e=json.loads(eng.read_text())
+          expected_schema="openvq-trace-v2-2026-09-27"
+          expected_impl="openvq-trace-spectral-v2-fft-corrected-2026-09-27"
+          if d["trace_schema_id"]!=expected_schema or e["trace_schema_id"]!=expected_schema:
+              raise SystemExit("trace schema freeze mismatch")
+          if d["trace_implementation_id"]!=expected_impl or e["trace_implementation_id"]!=expected_impl:
+              raise SystemExit("trace implementation freeze mismatch")
+          out={
+            "phase":"6.2B",
+            "source_commit":os.environ["GITHUB_SHA"],
+            "frontend_id":d["frontend_id"],
+            "trace_schema_id":expected_schema,
+            "trace_implementation_id":expected_impl,
+            "development_rows":d["rows"],
+            "development_trace_provenance_sha256":sha(dev),
+            "engineering_trace_provenance_sha256":sha(eng),
+            "phase6b_run":36233995161,
+            "phase6b_artifact":10905043210,
+            "phase6b_artifact_sha256":"8d5fefb87379862acf6385d0514d1ac0088c87762612a3c05601ff978a24d32b"
+          }
+          Path("validation/phase6/phase62-trace-v2-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
           print(json.dumps(out,indent=2))
           PY
 
       - uses: actions/upload-artifact@v4
         with:
-          name: openvq-phase6d-traces
+          name: openvq-phase62-trace-v2
           compression-level: 1
           path: |
-            validation/phase6/sequence-cache/
-            validation/phase6/model-engineering/cache/
-            validation/phase6/model-engineering/manifest.csv
-            validation/phase6/phase6d-freeze.json
+            validation/phase6/sequence-cache-v2/
+            validation/phase6/model-engineering-v2/cache/
+            validation/phase6/model-engineering-v2/manifest.csv
+            validation/phase6/phase62-trace-v2-freeze.json
             validation/phase6/baseline/canonical-manifest.csv
             validation/phase6/baseline/splits.json
 
-  sequence_loco:
-    needs: traces
+  corrected_loco_seed:
+    needs: trace_v2
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
       fail-fast: false
+      max-parallel: 18
       matrix:
         mode: [native_temporal, learned_bands, hybrid]
         held: [nisqa_p501, nisqa_test_for, openace, tcd, tmhint]
+        seed: [20260926, 20260927, 20260928]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -207,101 +242,60 @@ jobs:
             numpy==2.1.3 torch==2.8.0
       - uses: actions/download-artifact@v5
         with:
-          name: openvq-phase6d-traces
+          name: openvq-phase62-trace-v2
           path: validation/phase6
-      - name: Evaluate architecture on completely held corpus
+      - name: Run one frozen Phase 6E seed on corrected Trace V2
         run: |
-          mkdir -p validation/phase6/phase6e-folds
-          python validation/phase6_train_sequence_fold.py \
-            validation/phase6/sequence-cache/sequences.csv \
+          mkdir -p validation/phase6/phase62-seeds
+          python validation/phase6_train_sequence_seed.py \
+            validation/phase6/sequence-cache-v2/sequences.csv \
             --mode "${{ matrix.mode }}" --held "${{ matrix.held }}" \
-            --max-epochs 80 \
-            --out "validation/phase6/phase6e-folds/${{ matrix.mode }}__${{ matrix.held }}.json"
+            --seed "${{ matrix.seed }}" --max-epochs 80 \
+            --out "validation/phase6/phase62-seeds/${{ matrix.mode }}__${{ matrix.held }}__${{ matrix.seed }}.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: phase6e-${{ matrix.mode }}-${{ matrix.held }}
-          path: validation/phase6/phase6e-folds/*.json
+          name: phase62-seed-${{ matrix.mode }}-${{ matrix.held }}-${{ matrix.seed }}
+          path: validation/phase6/phase62-seeds/*.json
 
-  select_and_package:
-    needs: sequence_loco
+  aggregate_corrected_baseline:
+    needs: corrected_loco_seed
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Install fixed model/export runtime
-        run: |
-          python -m pip install --disable-pip-version-check \
-            numpy==2.1.3 torch==2.8.0 onnx==1.18.0 onnxruntime==1.22.1 onnxscript==0.5.0
+      - name: Install metric runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
       - uses: actions/download-artifact@v5
         with:
-          name: openvq-phase6d-traces
-          path: validation/phase6
-      - uses: actions/download-artifact@v5
-        with:
-          pattern: phase6e-*
+          pattern: phase62-seed-*
           merge-multiple: true
-          path: validation/phase6/phase6e-folds
-      - name: Select architecture from frozen LOCO reports
+          path: validation/phase6/phase62-seeds
+      - name: Reconstruct the original three-seed fold ensembles
+        run: |
+          mkdir -p validation/phase6/phase62-folds
+          for mode in native_temporal learned_bands hybrid; do
+            for held in nisqa_p501 nisqa_test_for openace tcd tmhint; do
+              python validation/phase6_aggregate_fold_seeds.py \
+                --seed-report "validation/phase6/phase62-seeds/${mode}__${held}__20260926.json" \
+                --seed-report "validation/phase6/phase62-seeds/${mode}__${held}__20260927.json" \
+                --seed-report "validation/phase6/phase62-seeds/${mode}__${held}__20260928.json" \
+                --out "validation/phase6/phase62-folds/${mode}__${held}.json"
+            done
+          done
+          test "$(find validation/phase6/phase62-folds -name '*.json' | wc -l)" -eq 15
+      - name: Apply unchanged Phase 6E architecture selection rule
         run: |
           args=()
-          for f in validation/phase6/phase6e-folds/*.json; do args+=(--report "$f"); done
+          for f in validation/phase6/phase62-folds/*.json; do args+=(--report "$f"); done
           python validation/phase6_aggregate_sequence.py "${args[@]}" \
-            --out validation/phase6/phase6e-selection.json
-
-      - name: Fit deterministic full-development candidate
-        run: |
-          python validation/phase6_train_sequence_final.py \
-            validation/phase6/sequence-cache/sequences.csv \
-            --selection validation/phase6/phase6e-selection.json \
-            --outdir validation/phase6/final-candidate --max-epochs 80
-
-      - name: Export selected candidate to ONNX
-        run: |
-          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
-          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
-          SAMPLE="$(python -c 'import csv;print(next(csv.DictReader(open("validation/phase6/sequence-cache/sequences.csv")))["trace_path"])')"
-          python validation/phase6_export_onnx.py \
-            --mode "$MODE" --state "$STATE" --sample-trace "$SAMPLE" \
-            --output validation/phase6/final-candidate/openvq-phase6.onnx
-
-      - name: Verify PyTorch to ONNX parity
-        run: |
-          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
-          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
-          python validation/phase6_parity.py \
-            --mode "$MODE" --state "$STATE" \
-            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
-            --sequences validation/phase6/sequence-cache/sequences.csv \
-            --out validation/phase6/final-candidate/parity.json \
-            --max-samples 64 --mos-tol 0.0001
-
-      - name: Run selected learned model on independent engineering timelines
-        run: |
-          python validation/phase6_score_engineering_onnx.py \
-            validation/phase6/model-engineering/cache/sequences.csv \
-            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
-            --out validation/phase6/final-candidate/engineering.json
-
-      - name: Build immutable Phase 6F candidate bundle
-        run: |
-          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
-          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
-          python validation/phase6_make_bundle.py \
-            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
-            --state "$STATE" \
-            --training-report validation/phase6/phase6e-selection.json \
-            --mode "$MODE" \
-            --output validation/phase6/final-candidate/pipeline.json
-
+            --out validation/phase6/phase62-corrected-trace-selection.json
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: openvq-phase6ef-candidate
+          name: openvq-phase62-corrected-trace-baseline
           path: |
-            validation/phase6/phase6e-selection.json
-            validation/phase6/phase6e-folds/
-            validation/phase6/final-candidate/
-            validation/phase6/phase6d-freeze.json
+            validation/phase6/phase62-seeds/
+            validation/phase6/phase62-folds/
+            validation/phase6/phase62-corrected-trace-selection.json

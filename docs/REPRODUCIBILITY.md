@@ -146,3 +146,19 @@ Reports preserve:
 - data and artifact hashes.
 
 No failed candidate is silently replaced by a retuned model under the same identifier.
+
+
+## Phase 6.1 trace erratum
+
+Trace V1 (`openvq-trace-v1-2026-09-26`) contains a confirmed FFT indexing defect in the trace-only spectral implementation.
+
+Affected historical evidence remains preserved:
+
+- Phase 6D run `36247385269`;
+- trace artifact `10907723570`;
+- artifact SHA-256 `b4f709a6160a9de5ceb1afaa8f60e2e87a44c9a120688e97818d5a8e4bd80c40`;
+- Phase 6E sequence results derived from that trace.
+
+Phase 6.2 introduces Trace V2 and reruns the original 45 seeded fits before any training redesign.
+
+See `docs/PHASE6_1_TRACE_ERRATUM.md`.

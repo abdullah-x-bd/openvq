@@ -1,19 +1,34 @@
-# Phase 6 trace schema v1
+# Phase 6 trace schema v2
 
 Schema ID:
 
-`openvq-trace-v1-2026-09-26`
+`openvq-trace-v2-2026-09-27`
+
+Trace implementation ID:
+
+`openvq-trace-spectral-v2-fft-corrected-2026-09-27`
 
 Frontend dependency:
 
 `openvq-frontend-phase6a-2026-09-26-v1`
+
+## Why v2 exists
+
+Phase 6.1 Trace V1 contained an FFT butterfly indexing defect in the trace-only spectral path. V2 corrects that calculation and adds independent numerical tests.
+
+The Phase 6A native analyzer has a separate correct FFT and remains frozen.
+
+Trace V1 is retained as historical evidence and must not be silently interpreted as V2.
+
+See [Phase 6.1 trace correctness erratum](PHASE6_1_TRACE_ERRATUM.md).
 
 ## Grid
 
 - prepared sample rate 48 kHz;
 - hop 10 ms;
 - analysis window 20 ms;
-- 64 log-spaced fullband auditory bands.
+- FFT length 1024 for the normal 20 ms / 48 kHz frame;
+- 64 log-spaced auditory bands from approximately 50 Hz to the usable fullband region.
 
 ## Per-frame fields
 
@@ -32,28 +47,34 @@ Inactive and unmatched frames remain explicit.
 
 ## Global side information
 
-Each sequence record also carries the Phase 6 rich-v3 global feature vector.
+Each sequence record carries the frozen rich-v3 global feature vector.
 
-## Freeze evidence
+## Numerical correctness gate
 
-Phase 6D recreated and verified all 2,463 development pairs against the canonical Phase 6B evidence before exporting traces.
+The V2 trace spectral implementation is tested against:
 
-Canonical trace artifact:
+- direct complex DFT at lengths 8, 16, and 1024;
+- impulse spectrum;
+- constant-input spectrum;
+- Parseval energy conservation;
+- deterministic tone-to-band placement;
+- expected approximately 6.02 dB band-energy change when tone amplitude is halved.
 
-- run `36247385269`;
-- artifact ID `10907723570`;
-- artifact SHA-256 `b4f709a6160a9de5ceb1afaa8f60e2e87a44c9a120688e97818d5a8e4bd80c40`;
-- development provenance SHA-256 `cbd5c8874026142b065d352335083640000e507ce1ba364614c236e31319c8fc`;
-- engineering provenance SHA-256 `ae6c65002093cb8f0a78b3829a25719467b53352e6009f57094b8e538c4f68b8`.
+Trace generation is not considered valid if these tests fail.
 
-## Numerical contract
+## Cache contract
 
-Canonical content hashes use array dtype, shape, and bytes rather than NPZ container bytes.
+Sequence manifests record both:
 
-Cross-implementation normalized trace comparisons begin with a 1e-5 absolute tolerance unless platform evidence justifies another value.
+- `trace_schema_id`;
+- `trace_implementation_id`.
 
-## Status
+V2 training rejects V1 cache rows.
 
-The trace representation remains part of the Phase 6.1 research foundation.
+Canonical content hashes continue to use array dtype, shape, and bytes rather than NPZ container bytes.
 
-The failure of the Phase 6E hybrid candidate is a mapping/training failure and does not invalidate the trace contract.
+## Phase 6.2 baseline
+
+All 2,463 development traces and engineering traces are regenerated under V2 before the controlled 45-fit sequence experiment.
+
+The first V2 model comparison changes no training architecture, data split, seed, or hyperparameter from the Phase 6E baseline.

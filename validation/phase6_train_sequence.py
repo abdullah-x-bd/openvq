@@ -10,7 +10,8 @@ from torch.utils.data import Dataset,DataLoader
 
 SEEDS=[20260926,20260927,20260928]
 MODES=["native_temporal","learned_bands","hybrid"]
-TRACE_SCHEMA="openvq-trace-v1-2026-09-26"
+TRACE_SCHEMA="openvq-trace-v2-2026-09-27"
+TRACE_IMPLEMENTATION_ID="openvq-trace-spectral-v2-fft-corrected-2026-09-27"
 
 def seed_all(s):
     random.seed(s);np.random.seed(s);torch.manual_seed(s)
@@ -200,6 +201,8 @@ def main():
     ap.add_argument("--device",default="cpu");ap.add_argument("--max-epochs",type=int,default=100)
     a=ap.parse_args();rows=list(csv.DictReader(open(a.sequences,newline="",encoding="utf-8")))
     if any(r["trace_schema_id"]!=TRACE_SCHEMA for r in rows):raise SystemExit("trace schema mismatch")
+    if any(r.get("trace_implementation_id")!=TRACE_IMPLEMENTATION_ID for r in rows):
+        raise SystemExit("trace implementation mismatch")
     outdir=Path(a.outdir);outdir.mkdir(parents=True,exist_ok=True);device=torch.device(a.device)
     reports={}
     for mode in MODES:
