@@ -1,48 +1,57 @@
 # OpenVQ
 
-OpenVQ is a source-available, full-reference speech-quality engine for telecom and drive-test applications. It is an independently derived perceptual quality system with optional Google ViSQOL input, telecom-oriented diagnostics, a native C++ core, and Android bindings.
+OpenVQ is a source-available full-reference speech-quality research engine for telecom and drive-test applications.
 
-OpenVQ is not POLQA and does not claim to implement ITU-T P.863. Numerical equivalence or superiority must be established through independent listening-test validation.
+It compares a known reference utterance with a degraded recording and produces an OpenVQ quality estimate together with interpretable speech-quality diagnostics.
 
-## Implemented
+OpenVQ is independently derived. It is not POLQA, does not implement ITU-T P.863, and is not currently demonstrated to be equivalent or superior to POLQA.
 
-- 48 kHz internal fullband pipeline
-- PCM16 and float32 WAV ingestion
-- fullband sample-rate conversion
-- NB, WB, SWB and FB bandwidth classification
-- global delay estimation
-- multi-region clock-drift estimation
-- dropout-aware local alignment
-- reference voice-activity detection
-- FFT perceptual spectral analysis
-- 32-band ERB auditory analysis
-- 20 ms, 80 ms and 200 ms multi-resolution quality analysis
-- missing and added disturbance measures
-- asymmetric disturbance weighting
-- coloration analysis
-- noisiness analysis
-- discontinuity and dropout-event analysis
-- loudness mismatch analysis
-- clipping detection
-- temporal-envelope similarity
-- modulation-spectrum similarity
-- spectral-tilt error
-- active-level error
-- worst-interval pooling
-- monotonic MOS aggregation
-- trainable base and advanced fusion weights
-- optional ViSQOL expert penalty
-- confidence estimate
-- JSON CLI output
-- per-frame quality traces
-- deterministic degradation generator
-- human-MOS feature extraction
-- two-stage human-MOS calibration
-- held-out benchmarking against human MOS, ViSQOL, and optional licensed POLQA scores
-- Android JNI and Kotlin API
-- native regression tests and GitHub Actions CI
+## Repository status
 
-## Native build
+The default `main` branch is the stable baseline.
+
+Current research is tracked on `validation/phase6`.
+
+The latest research milestone is **Phase 6.1**. That work established a frozen frontend, canonical dataset registry, local sequence traces, compact sequence-model evaluation, and ONNX export. The selected hybrid sequence candidate passed numerical export parity but failed the independent engineering promotion gate.
+
+The failed candidate is not promoted into the main scoring path.
+
+Research branch:
+
+https://github.com/abdullah-x-bd/openvq/tree/validation/phase6
+
+Current evidence summary:
+
+[docs/PHASE6_1_RESULTS.md](docs/PHASE6_1_RESULTS.md)
+
+## Latest scientific result
+
+The Phase 6E frozen architecture-selection rule selected a 263,009-parameter hybrid sequence model.
+
+Completely held-out OpenACE improved to:
+
+- Pearson 0.3990
+- Spearman 0.4390
+
+This was a meaningful improvement over earlier OpenACE reversals.
+
+The full-development candidate then failed engineering sanity:
+
+- clean identity MOS 2.393, below the 4.4 gate;
+- two dropout severity reversals;
+- one repeated-dropout reversal;
+- one mixed-impairment reversal;
+- two noise severity reversals.
+
+PyTorch-to-ONNX parity passed with maximum absolute difference 0.0000091 MOS.
+
+The result identifies training, calibration, domain robustness, and engineering constraints as the next model-development problem.
+
+## Stable native baseline
+
+Main contains the independently derived native C++ engine, Android integration, calibration utilities, validation workflows, and historical benchmark infrastructure.
+
+Build:
 
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     cmake --build build --parallel
@@ -52,64 +61,47 @@ Analyze two WAV files:
 
     ./build/openvq_cli reference.wav degraded.wav
 
-Use an independently computed ViSQOL score as an optional expert input:
-
-    ./build/openvq_cli reference.wav degraded.wav --visqol-score 4.21
-
-Use fitted human-MOS calibration:
-
-    ./build/openvq_cli reference.wav degraded.wav --calibration openvq-final.calibration
-
-## Human-MOS calibration
-
-Start with a training manifest:
-
-    reference,degraded,human_mos,visqol_mos,polqa_mos
-
-The ViSQOL and POLQA columns are optional. POLQA values are only benchmark data when lawfully available. Human MOS is the target.
-
-Extract the initial feature table:
-
-    python3 python/build_training_table.py train-manifest.csv train-base.csv
-
-Fit the base monotonic degradation model:
-
-    python3 python/calibrate.py train-base.csv --out openvq-base.calibration
-
-Re-extract features using that fitted base model:
-
-    python3 python/build_training_table.py train-manifest.csv train-advanced.csv \
-        --calibration openvq-base.calibration
-
-Fit the final advanced perceptual fusion while retaining the base weights:
-
-    python3 python/calibrate_advanced.py train-advanced.csv \
-        --base-calibration openvq-base.calibration \
-        --out openvq-final.calibration
-
-Evaluate only on a separate held-out manifest:
-
-    python3 python/benchmark.py heldout.csv \
-        --calibration openvq-final.calibration
-
-The benchmark reports RMSE, Pearson correlation, Spearman correlation, and mean bias. If the held-out manifest contains ViSQOL or licensed POLQA scores, the same metrics are reported for those baselines.
+The default and historical calibration paths are research interfaces. They are not POLQA replacements.
 
 ## ViSQOL
 
-Google ViSQOL is not vendored into this repository. `tools/visqol_score.py` uses a separately installed upstream ViSQOL package in 48 kHz audio mode. The resulting MOS can be supplied to OpenVQ as one optional expert feature. This keeps the upstream dependency, attribution and upgrades explicit.
+Google ViSQOL is not vendored into this repository.
 
-## Android
+Where used, it is an independently computed optional external signal or benchmark. OpenVQ's native analyzer is not based on ViSQOL.
 
-The `android/openvq-android` library exposes:
+## POLQA
 
-    val json = OpenVqNative.analyzePcm16(reference, degraded, 48000)
+POLQA is not an OpenVQ runtime dependency.
 
-The JNI layer uses the same advanced native analyzer as the CLI.
+A direct comparison requires lawful published or licensed POLQA outputs for exactly the same reference/degraded audio pairs and the same human target.
 
-## Scientific status
+OpenACE provides public per-file POLQA values for historical benchmarking, but it is already development evidence and is not an untouched Phase 6.1 validation set.
 
-The software implementation and calibration pipeline are complete engineering components. The checked-in default weights are bootstrap values. A claim that OpenVQ matches or exceeds POLQA requires a sufficiently large independent human listening-test corpus and a locked held-out evaluation set. The repository includes the machinery needed to perform that calibration and comparison.
+## External reserve
+
+URGENT 2026 subjective labels remain unconsumed by Phase 6.1 model selection.
+
+The reserve is not opened for a candidate that fails the independent engineering gate.
+
+## Claim boundary
+
+OpenVQ can be described as an independently derived full-reference speech-quality research engine with reproducible native diagnostics and documented human-subjective experiments.
+
+OpenVQ is not currently established as:
+
+- POLQA-equivalent;
+- a general POLQA replacement;
+- P.863 compliant;
+- generally superior to POLQA;
+- externally validated at Phase 6.1.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Phase 6.1 results](docs/PHASE6_1_RESULTS.md)
+- [Stable algorithm baseline](docs/ALGORITHM.md)
+- [Validation status](docs/VALIDATION.md)
 
 ## Licensing
 
-OpenVQ is source-available under PolyForm Noncommercial 1.0.0. Commercial use requires a separate written commercial license from the licensor. See `LICENSE` and `COMMERCIAL-LICENSE.md`.
+OpenVQ is source-available under PolyForm Noncommercial 1.0.0. Commercial use requires a separate written commercial license. See LICENSE and COMMERCIAL-LICENSE.md.
