@@ -83,7 +83,7 @@ Analyze two WAV files:
 
 Export the Phase 6 local trace:
 
-    ./build/openvq_trace_cli reference.wav degraded.wav trace.npz
+    ./build/openvq_trace_cli reference.wav degraded.wav > trace.json
 
 Historical score paths remain available for reproducibility. They must not be interpreted as currently validated replacements for POLQA.
 
@@ -127,7 +127,7 @@ Phase 6A frontend freeze:
 
 - run 36232604130
 - artifact 10902877054
-- artifact SHA-256 772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1c
+- artifact SHA-256 772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1
 
 Phase 6B summary experiment:
 

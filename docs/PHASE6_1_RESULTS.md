@@ -31,7 +31,7 @@ Canonical evidence:
 - source commit `d129658f084eaac28ed88f801c566ff2addb72f2`
 - run `36232604130`
 - artifact `10902877054`
-- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1c`
+- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1`
 
 The six-reference real-speech engineering suite completed with zero failures. The worst pure-delay score change was approximately 0.00005 MOS.
 

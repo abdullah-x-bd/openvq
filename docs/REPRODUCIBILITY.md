@@ -33,7 +33,7 @@ Record:
 - run `36232604130`
 - artifact `openvq-phase6a-foundation`
 - artifact ID `10902877054`
-- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1c`
+- artifact SHA-256 `772ae5666a0edcefbfe835a1d53ea7d5d1d4477c248d6802f6c4f4e262496fb1`
 - freeze file `validation/phase6/frontend-freeze.json`
 
 ## Phase 6B summary evidence
