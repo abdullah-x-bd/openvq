@@ -10,9 +10,9 @@ OpenVQ is **not POLQA**, does not implement ITU-T P.863, and does not currently 
 
 > **Trace V1 correctness erratum.** A confirmed FFT indexing defect affects the Phase 6.1 local sequence traces and therefore all three recorded Phase 6E sequence arms. Phase 6A native analysis is unaffected because it uses a separate correct FFT. Phase 6.2 introduces corrected Trace V2 and reruns the original model grid before training changes. See [the erratum](docs/PHASE6_1_TRACE_ERRATUM.md).
 
-The latest research milestone is **Phase 6.1**.
+The latest research milestone is **Phase 6.2E**, with Phase 6.2F engineering qualification now defined.
 
-This branch contains the current Phase 6.1 research implementation and evidence pipeline. The default `main` branch remains the stable baseline.
+This branch contains the current Phase 6 research implementation and evidence pipeline. The default `main` branch remains the stable baseline.
 
 Phase 6.1 established a frozen native frontend, repaired validation infrastructure, a canonical five-corpus registry, a local sequence representation, fair summary-model baselines, compact sequence models, ONNX export, and an independent engineering promotion gate.
 

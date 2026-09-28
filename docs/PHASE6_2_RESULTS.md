@@ -173,3 +173,63 @@ The encoder masks padded frames after every convolution. The TCN masks padded fr
 Before training, the new model must pass the same-utterance-alone versus mixed-length-batch invariance gate at 0.0001 MOS.
 
 The same five held corpora and three fixed seeds are then rerun. No property losses, new data, global fusion, or external reserve are introduced.
+
+
+## 6.2E completed result
+
+Canonical run:
+
+`36330893596`
+
+Aggregate artifact:
+
+- name `openvq-phase62e-padding-safe`
+- artifact ID `10937636963`
+- artifact ZIP SHA-256 `7d222696a891cfbb4d8ae6dda8131c259d41840a187d0319ad886d96ec43ce0b`
+
+### Padding invariance
+
+The padding-safe architecture passed the pre-training same-utterance batch-context gate.
+
+- model seeds tested: 17, 23, 37
+- samples per seed: 15
+- tolerance: 0.0001 MOS
+- maximum absolute MOS delta: 0.0000004768
+- violations: 0
+- result: pass
+
+### Three-seed held-corpus ensembles
+
+| Held corpus | Pearson | Spearman | normalized RMSE |
+| --- | ---: | ---: | ---: |
+| NISQA P501 | 0.6364 | 0.6456 | 0.2066 |
+| NISQA TEST_FOR | 0.5241 | 0.4609 | 0.2019 |
+| OpenACE | 0.4403 | 0.4897 | 0.2116 |
+| TCD | 0.5521 | 0.5477 | 0.2570 |
+| TMHINT | 0.2248 | 0.1900 | 0.3062 |
+
+Aggregate selection objective:
+
+- worst held-corpus correlation 0.1899702;
+- mean held-corpus correlation 0.4550501;
+- worst normalized RMSE 0.3062099.
+
+Relative to the corrected Trace V2 learned-bands baseline, Phase 6.2E sacrifices some P501 and TEST_FOR correlation but substantially improves OpenACE, modestly improves TCD, removes the padding-context defect, improves the worst held-corpus correlation from 0.0894 to 0.1900, improves mean held-corpus correlation from 0.4317 to 0.4551, and reduces worst normalized RMSE from 0.3487 to 0.3062.
+
+Every completely held-out development corpus now has positive ensemble Pearson and Spearman correlation.
+
+This remains development evidence. URGENT 2026 remains untouched.
+
+## 6.2F aligned engineering qualification
+
+The next qualification stage uses the exact deployment shape implied by the Phase 6.2E evidence:
+
+- three fixed seeds `20260926`, `20260927`, and `20260928`;
+- full-development fitting for each seed;
+- one ONNX model per seed;
+- ensemble prediction by averaging raw quality outputs across the three models;
+- PyTorch-to-ONNX parity for every seed;
+- the existing independent identity, pure-delay, dropout, repeated-dropout, noise, low-pass, clipping, and mixed-degradation gate;
+- no URGENT label consumption.
+
+A candidate is eligible for an immutable bundle only if parity and the independent engineering gate pass.

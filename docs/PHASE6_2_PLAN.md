@@ -71,14 +71,31 @@ Phase 6.2E therefore changes only the current winning learned-bands architecture
 
 No property loss is introduced until this ablation is recorded.
 
-## Later Phase 6.2 work
+## 6.2E result
 
-After 6.2E:
+Phase 6.2E is complete.
 
-- scoped identity, delay, and severity property losses;
-- protected real-speech engineering gates;
-- eligibility-first candidate selection;
-- aligned single-model or ensemble evaluation/deployment;
-- broader ONNX parity coverage.
+The padding-safe learned-bands architecture passed the padding-invariance gate and improved the frozen cross-domain objective to:
 
-URGENT 2026 remains untouched.
+- worst held-corpus correlation 0.1900;
+- mean held-corpus correlation 0.4551;
+- worst normalized RMSE 0.3062.
+
+All five held corpora have positive ensemble Pearson and Spearman correlation.
+
+## 6.2F aligned engineering qualification
+
+The qualification candidate must match the evaluation model family and ensemble rule.
+
+Phase 6.2F therefore:
+
+- fits the padding-safe learned-bands model on all development evidence for seeds 20260926, 20260927, and 20260928;
+- exports all three models to ONNX;
+- checks PyTorch-to-ONNX parity for all three;
+- averages raw quality predictions across the three ONNX models;
+- applies the independent engineering promotion gate to that ensemble;
+- creates an immutable candidate bundle only if the gate passes.
+
+If the engineering gate fails, the next controlled experiment introduces scoped identity, delay, and severity property losses while keeping Trace V2, development data, held-corpus folds, and the padding-safe architecture fixed.
+
+URGENT 2026 remains untouched until an aligned candidate passes the engineering gate.
