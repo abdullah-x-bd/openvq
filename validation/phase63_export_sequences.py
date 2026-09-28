@@ -22,11 +22,11 @@ def main():
     a=ap.parse_args();rows=list(csv.DictReader(open(a.manifest,newline="",encoding="utf-8")))
     feats=list(csv.DictReader(open(a.features,newline="",encoding="utf-8")))
     if len(rows)!=len(feats):raise SystemExit(f"manifest/features row mismatch {len(rows)} != {len(feats)}")
-    fm={(r["dataset"],r["filename"],r["reference"],r["degraded"]):r for r in feats}
+    fm={(r["filename"],r["reference"],r["degraded"]):r for r in feats}
     if len(fm)!=len(feats):raise SystemExit("duplicate feature identity")
     outdir=Path(a.outdir);(outdir/"npz").mkdir(parents=True,exist_ok=True)
     def one(item):
-        i,r=item;key=(r["dataset"],r["filename"],r["reference"],r["degraded"]);fr=fm.get(key)
+        i,r=item;key=(r["filename"],r["reference"],r["degraded"]);fr=fm.get(key)
         if fr is None:raise RuntimeError(f"missing feature row for {key}")
         obj=json.loads(subprocess.check_output([a.trace_cli,r["reference"],r["degraded"]],text=True))
         if obj["frontend_id"]!=FRONTEND_ID:raise RuntimeError("frontend mismatch")
@@ -39,7 +39,7 @@ def main():
           q["reference_rms_db"],q["degraded_rms_db"],q["mapped_start_ms"]-q["start_ms"]] for q in frames],np.float32)
         glob=np.asarray([float(fr[k]) for k in RICH_V4],np.float32);h=content_hash(ref,deg,extras,glob)
         p=outdir/"npz"/f"{i:06d}_{h[:16]}.npz";np.savez_compressed(p,reference_bands_db=ref,degraded_bands_db=deg,frame_extras=extras,global_features=glob)
-        row=dict(r);row.update({"trace_path":str(p),"trace_content_sha256":h,"trace_frames":len(frames),
+        row=dict(r);row["dataset"]=fr["dataset"];row.update({"trace_path":str(p),"trace_content_sha256":h,"trace_frames":len(frames),
           "frontend_id":FRONTEND_ID,"trace_schema_id":TRACE_SCHEMA,"trace_implementation_id":TRACE_IMPLEMENTATION_ID,
           "feature_schema_id":SCHEMA_ID});return row
     out=[]
