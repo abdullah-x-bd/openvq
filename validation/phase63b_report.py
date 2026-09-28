@@ -32,6 +32,7 @@ def main():
                 invariance.append({"reference_id":rid,"family":fam,"label":x["label"],"abs_delta_mos":d,"tolerance":tol})
                 if d>tol:blockers.append(f"{rid}:{fam}:{x['label']} delta {d:.3f}>{tol:.2f}")
     ordered=["noise","resample_roundtrip","attenuation","clipping","burst_loss","repeated_segment","clock_drift","time_scale"]
+    blocking_ordered={"noise","attenuation","clipping","burst_loss","repeated_segment","clock_drift","time_scale"}
     aggregate={}
     for fam in ordered:
         famrows=[r for r in rows if r["family"]==fam]
@@ -43,7 +44,8 @@ def main():
                             "median_mos":median([float(r["openvq_mos"]) for r in q]),"n":len(q)})
         reversals=sum(b["median_mos"]>a0["median_mos"]+.12 for a0,b in zip(medrows,medrows[1:]))
         aggregate[fam]={"rows":medrows,"aggregate_reversals_gt_0.12_mos":reversals}
-        if reversals:blockers.append(f"{fam}: {reversals} aggregate severity reversals >0.12 MOS")
+        if reversals and fam in blocking_ordered:
+            blockers.append(f"{fam}: {reversals} aggregate severity reversals >0.12 MOS")
         for rid,rr in sorted(byref.items()):
             q=sorted([x for x in rr if x["family"]==fam],key=lambda x:float(x["level"]))
             if len(q)>1:
@@ -77,6 +79,7 @@ def main():
         "identity_min_mos":4.4,
         "invariance_max_abs_delta_mos":0.20,
         "aggregate_ordering_reversal_tolerance_mos":0.12,
+        "resample_roundtrip_status":"diagnostic only because original sample-rate availability differs by reference",
         "absolute_synthetic_mos_targets":"none",
       },
       "identity_mos_by_reference":identities,
