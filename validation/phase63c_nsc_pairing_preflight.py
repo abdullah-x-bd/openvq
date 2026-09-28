@@ -57,7 +57,9 @@ def main():
             ri=sf.info(str(rp));di=sf.info(str(dp));rid=sha(rp);did=sha(dp)
             sample_id=Path(r.get(deg,"")).as_posix()
             rows.append({"sample_id":sample_id,"dataset":"NISQA_TEST_NSC","protocol":"P.808","language":"German",
-              "reference":str(rp),"degraded":str(dp),"reference_sha256":rid,"degraded_sha256":did,
+              "reference_member":str(rp.relative_to(root.resolve())).replace("\\\\","/"),
+              "degraded_member":str(dp.relative_to(root.resolve())).replace("\\\\","/"),
+              "reference_sha256":rid,"degraded_sha256":did,
               "source_cluster":rid,"speaker_id":r.get(speaker,"") if speaker else "",
               "system_id":r.get(con,"") if con else "","reference_sample_rate":ri.samplerate,
               "degraded_sample_rate":di.samplerate,"reference_frames":ri.frames,"degraded_frames":di.frames,
@@ -82,7 +84,9 @@ def main():
         if p.is_file() and any(k in p.name.lower() for k in ("license","readme","copyright")):
             rights.append({"path":str(p.relative_to(root)),"sha256":sha(p)})
     result={"phase":"6.3C","reserve_candidate":"NISQA_TEST_NSC","subjective_values_read":False,
-      "source_manifest":str(source.relative_to(root)),"safe_source_columns":safe,"eligible_rows":len(rows),
+      "source_manifest":str(source.relative_to(root)),"source_manifest_sha256":sha(source),
+      "archive_source":"TU Berlin DepositOnce NISQA_Corpus.zip, record 11303/13012.5/9",
+      "safe_source_columns":safe,"eligible_rows":len(rows),
       "ineligible_rows":sum(x["status"]!="eligible" for x in ledger),"unique_source_clusters":len(set(r["source_cluster"] for r in rows)),
       "explicit_reference_column":ref,"explicit_degraded_column":deg,"rights_files":rights,
       "manifest_sha256":sha(a.manifest),"ledger_sha256":sha(a.ledger),
