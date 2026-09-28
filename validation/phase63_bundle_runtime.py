@@ -82,12 +82,17 @@ class FrozenEnsemble:
         self.bundle,self.model_paths=load_bundle(bundle_path,candidate_dir,expected_bundle_sha256)
         self.sessions=[ort.InferenceSession(str(p),providers=["CPUExecutionProvider"]) for p in self.model_paths]
         self.input_names=[[x.name for x in s.get_inputs()] for s in self.sessions]
-        _require(all(len(n)==5 for n in self.input_names),"unexpected ONNX input count")
+        allowed={"reference_bands","degraded_bands","frame_extras","mask","global_features"}
+        required={"reference_bands","degraded_bands","frame_extras","mask"}
+        for names in self.input_names:
+            _require(required.issubset(names),f"missing required ONNX inputs: {sorted(required-set(names))}")
+            _require(set(names).issubset(allowed),f"unknown ONNX inputs: {sorted(set(names)-allowed)}")
 
     def predict_arrays(self,arr):
+        arrays=dict(zip(["reference_bands","degraded_bands","frame_extras","mask","global_features"],arr))
         raws=[]
         for sess,names in zip(self.sessions,self.input_names):
-            q=float(sess.run(None,{n:x for n,x in zip(names,arr)})[0].reshape(-1)[0])
+            q=float(sess.run(None,{n:arrays[n] for n in names})[0].reshape(-1)[0])
             _require(math.isfinite(q),"non-finite ONNX output")
             raws.append(q)
         raw=float(np.mean(raws))
