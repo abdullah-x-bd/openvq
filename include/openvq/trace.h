@@ -8,9 +8,9 @@
 namespace openvq {
 
 inline constexpr const char* kTraceSchemaId =
-    "openvq-trace-v2-2026-09-27";
+    "openvq-trace-v3-2026-09-29";
 inline constexpr const char* kTraceImplementationId =
-    "openvq-trace-spectral-v2-fft-corrected-2026-09-27";
+    "openvq-trace-v3-transport-fallback-2026-09-29";
 
 struct TraceFrame {
   double start_ms = 0.0;

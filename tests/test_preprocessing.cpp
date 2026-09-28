@@ -47,6 +47,14 @@ openvq::AudioBuffer Delay(const openvq::AudioBuffer& a, int delay_ms) {
   return d;
 }
 
+openvq::AudioBuffer PadTail(const openvq::AudioBuffer& a, int tail_ms) {
+  auto d = a;
+  d.samples.insert(d.samples.end(),
+                   static_cast<std::size_t>(a.sample_rate * tail_ms / 1000),
+                   0.0f);
+  return d;
+}
+
 void Require(bool ok, const char* msg) {
   if (!ok) {
     std::cerr << msg << "\n";
@@ -122,6 +130,37 @@ int main() {
         p.alignment.global_delay_samples * 1000.0 / p.sample_rate;
     Require(std::abs(got_ms - expected_ms) <= 5.0,
             "controlled delay exceeded one envelope-bin tolerance");
+  }
+
+  // Phase 6.3B regression: exact narrowband speech plus transport padding
+  // must not be reinterpreted as clock drift by the flexible local aligner.
+  {
+    const auto narrow = MakeSpeechLike(16000, 5.5);
+    openvq::AnalysisOptions nopt;
+    nopt.target_sample_rate = 48000;
+    nopt.max_delay_ms = 1200;
+    for (const int expected_ms : {200, 800}) {
+      const auto padded = Delay(narrow, expected_ms);
+      const auto p = openvq::PreparePair(narrow, padded, nopt);
+      const double got_ms =
+          p.alignment.global_delay_samples * 1000.0 / p.sample_rate;
+      Require(std::abs(got_ms - expected_ms) <= 1.0,
+              "narrowband transport delay was not recovered exactly");
+      Require(std::abs(p.alignment.clock_drift_ppm) <= 1.0,
+              "narrowband transport delay created false clock drift");
+      const auto levels = openvq::MeasureMatchedActiveLevel(
+          p, nopt.frame_ms, nopt.hop_ms, nopt.vad_relative_db);
+      Require(levels.active_coverage_fraction > 0.99,
+              "narrowband transport delay lost active coverage");
+    }
+    const auto tailed = PadTail(narrow, 1000);
+    const auto p = openvq::PreparePair(narrow, tailed, nopt);
+    const double got_ms =
+        p.alignment.global_delay_samples * 1000.0 / p.sample_rate;
+    Require(std::abs(got_ms) <= 1.0,
+            "trailing transport padding created a false delay");
+    Require(std::abs(p.alignment.clock_drift_ppm) <= 1.0,
+            "trailing transport padding created false clock drift");
   }
 
   return 0;

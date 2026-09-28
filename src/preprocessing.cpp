@@ -175,6 +175,55 @@ DirectMatch DirectMatchAtDelay(const std::vector<float>& ref,
   return out;
 }
 
+bool IsFullReferenceTransportMatch(const DirectMatch& m,
+                                   std::size_t reference_size,
+                                   int sr) {
+  const std::size_t min_support =
+      static_cast<std::size_t>(std::max(64, sr / 4));
+  const double coverage = reference_size == 0
+      ? 0.0 : static_cast<double>(m.samples) / reference_size;
+  return m.samples >= min_support &&
+         coverage >= 0.995 &&
+         m.correlation >= 0.9995 &&
+         m.normalized_error <= 0.02;
+}
+
+struct TransportFallback {
+  bool found = false;
+  long delay_samples = 0;
+  DirectMatch match;
+};
+
+TransportFallback LengthDerivedTransportFallback(
+    const std::vector<float>& ref,
+    const std::vector<float>& deg,
+    int sr) {
+  TransportFallback best;
+  std::vector<long> candidates{0};
+  if (deg.size() >= ref.size()) {
+    const long delta = static_cast<long>(deg.size() - ref.size());
+    if (delta != 0) candidates.push_back(delta);
+  }
+  for (const long delay : candidates) {
+    const auto m = DirectMatchAtDelay(ref, deg, delay);
+    if (!IsFullReferenceTransportMatch(m, ref.size(), sr)) continue;
+    const bool better =
+        !best.found ||
+        m.normalized_error < best.match.normalized_error - 1e-12 ||
+        (std::abs(m.normalized_error - best.match.normalized_error) <= 1e-12 &&
+         m.correlation > best.match.correlation + 1e-12) ||
+        (std::abs(m.normalized_error - best.match.normalized_error) <= 1e-12 &&
+         std::abs(m.correlation - best.match.correlation) <= 1e-12 &&
+         std::abs(delay) < std::abs(best.delay_samples));
+    if (better) {
+      best.found = true;
+      best.delay_samples = delay;
+      best.match = m;
+    }
+  }
+  return best;
+}
+
 AlignmentMap BuildAlignment(const std::vector<float>& ref,
                             const std::vector<float>& deg,
                             int sr,const AnalysisOptions& options){
@@ -197,19 +246,36 @@ AlignmentMap BuildAlignment(const std::vector<float>& ref,
   // artifacts. The thresholds are deliberately strict so noisy, coded, echoed,
   // time-scaled, or genuinely locally distorted material still uses local
   // alignment.
-  const auto direct=DirectMatchAtDelay(
-      ref,deg,static_cast<long>(std::llround(out.global_delay_samples)));
-  const bool transport_only=
-      direct.samples>=static_cast<std::size_t>(std::max(64,sr/4)) &&
-      direct.correlation>=0.9995 &&
-      direct.normalized_error<=0.02;
+  long transport_delay =
+      static_cast<long>(std::llround(out.global_delay_samples));
+  auto direct = DirectMatchAtDelay(ref, deg, transport_delay);
+  bool transport_only =
+      IsFullReferenceTransportMatch(direct, ref.size(), sr);
+
+  // Exact source material with leading or trailing transport padding has only
+  // two physically plausible full-reference offsets: zero, or the resampled
+  // length difference when the degraded stream is longer. The envelope
+  // correlation can choose a neighbouring phoneme on narrowband or periodic
+  // speech, so verify these offsets directly before allowing local warping.
+  if (!transport_only) {
+    const auto fallback = LengthDerivedTransportFallback(ref, deg, sr);
+    if (fallback.found) {
+      transport_only = true;
+      transport_delay = fallback.delay_samples;
+      direct = fallback.match;
+      out.global_delay_samples = static_cast<double>(transport_delay);
+      out.global_confidence =
+          std::max(out.global_confidence, Clamp(direct.correlation, 0.0, 1.0));
+    }
+  }
 
   if(transport_only||!options.enable_local_alignment||re.size()<40){
-    out.knots.push_back({0.0,out.global_delay_samples,global.confidence});
+    const double confidence = transport_only ? out.global_confidence : global.confidence;
+    out.knots.push_back({0.0,out.global_delay_samples,confidence});
     out.knots.push_back({static_cast<double>(ref.size()),
                          static_cast<double>(ref.size())+out.global_delay_samples,
-                         global.confidence});
-    out.mean_confidence=global.confidence;
+                         confidence});
+    out.mean_confidence=confidence;
     return out;
   }
 

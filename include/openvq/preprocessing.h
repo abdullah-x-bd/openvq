@@ -37,7 +37,7 @@ struct PreparedPair {
 };
 
 inline constexpr const char* kFrontendId =
-    "openvq-frontend-phase6a-2026-09-26-v1";
+    "openvq-frontend-phase63b-2026-09-29-v1";
 
 struct ActiveLevelStats {
   double reference_db = -120.0;
