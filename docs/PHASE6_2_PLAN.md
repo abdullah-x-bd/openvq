@@ -99,3 +99,49 @@ Phase 6.2F therefore:
 If the engineering gate fails, the next controlled experiment introduces scoped identity, delay, and severity property losses while keeping Trace V2, development data, held-corpus folds, and the padding-safe architecture fixed.
 
 URGENT 2026 remains untouched until an aligned candidate passes the engineering gate.
+
+
+## 6.2F observed qualification result
+
+The aligned three-seed Phase 6.2F ensemble passed identity, pure-delay invariance, dropout severity, repeated-dropout severity, noise, low-pass, and mixed-impairment checks. It failed one protected clipping monotonicity relationship. The most severe protected clipping case scored more than 0.12 MOS above the preceding severity level.
+
+No qualified bundle was created. URGENT 2026 remained untouched.
+
+## 6.2G predeclared clipping-property experiment
+
+Phase 6.2G changes only the training objective.
+
+Fixed:
+
+- corrected Trace V2;
+- the five development corpora;
+- leave-one-corpus-out folds;
+- seeds 20260926, 20260927, and 20260928;
+- padding-safe learned-bands architecture;
+- optimizer and human-MOS objective;
+- three-seed ensemble rule;
+- protected engineering gate;
+- untouched URGENT reserve.
+
+Added:
+
+- three separately generated clipping-property references;
+- six training thresholds 0.85, 0.65, 0.45, 0.30, 0.18, and 0.11;
+- no overlap with protected clipping thresholds 0.95, 0.50, 0.25, and 0.08;
+- pairwise adjacent clipping-order hinge loss;
+- raw-quality margin 0.03, equal to 0.12 MOS;
+- property-loss weight 0.25;
+- one property update contribution every four human training batches.
+
+The property fixtures have no subjective MOS role. Early stopping remains human-only corpus-balanced validation RMSE.
+
+Subjective no-regression guardrails are frozen before the run:
+
+- every held-corpus Pearson and Spearman must stay positive;
+- worst held-corpus correlation must remain at least 90% of Phase 6.2E;
+- mean held-corpus correlation must remain at least 95% of Phase 6.2E;
+- worst normalized RMSE must remain within 105% of Phase 6.2E.
+
+Only after those guardrails pass may the full-development three-seed candidate be trained and tested on the unchanged protected engineering gate.
+
+URGENT 2026 remains untouched.

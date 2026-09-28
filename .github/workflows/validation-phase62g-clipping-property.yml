@@ -1,0 +1,239 @@
+name: validation-phase62g-clipping-property
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase62g_clipping_constraint_pairs.py"
+      - "validation/phase62g_clipping_regularized.py"
+      - "validation/phase62g_train_seed.py"
+      - "validation/phase62g_train_final.py"
+      - "validation/phase62g_guardrail.py"
+      - "validation/phase62g_score_engineering.py"
+      - "validation/phase62g_make_bundle.py"
+      - ".github/workflows/validation-phase62g-clipping-property.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TRACE_RUN_ID: "36306154897"
+  TRACE_ARTIFACT: "openvq-phase62-trace-v2"
+
+jobs:
+  clipping_constraints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixture runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3
+      - name: Verify frozen frontend and build trace tools
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          freeze=json.loads(Path("validation/phase6/frontend-freeze.json").read_text())
+          for p,expected in freeze["files"].items():
+              got=hashlib.sha256(Path(p).read_bytes()).hexdigest()
+              if got!=expected:raise SystemExit(f"frozen frontend drift: {p}")
+          print("verified",freeze["frontend_id"])
+          PY
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          test -x ./build/openvq_cli
+          test -x ./build/openvq_trace_cli
+      - name: Build disjoint clipping-order fixtures
+        run: |
+          mkdir -p validation/phase6/phase62g-constraints
+          python validation/phase62g_clipping_constraint_pairs.py             validation/phase6/phase62g-constraints/audio             validation/phase6/phase62g-constraints/manifest.csv
+          python validation/phase6_extract_features.py             validation/phase6/phase62g-constraints/manifest.csv             validation/phase6/phase62g-constraints/features.csv             --dataset phase62g_clipping --target-field placeholder_mos --target-scale mos1to5             --group-field canonical_source_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase6_export_sequences.py             validation/phase6/phase62g-constraints/manifest.csv             validation/phase6/phase62g-constraints/features.csv             validation/phase6/phase62g-constraints/cache             --trace-cli ./build/openvq_trace_cli --jobs 2
+      - name: Verify property fixture contract
+        run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          rows=list(csv.DictReader(open("validation/phase6/phase62g-constraints/cache/sequences.csv")))
+          p=json.loads(Path("validation/phase6/phase62g-constraints/audio/constraint-provenance.json").read_text())
+          assert len(rows)==18
+          assert p["threshold_sets_disjoint"] is True
+          assert all(r["trace_schema_id"]=="openvq-trace-v2-2026-09-27" for r in rows)
+          assert all(r["trace_implementation_id"]=="openvq-trace-spectral-v2-fft-corrected-2026-09-27" for r in rows)
+          print("constraint rows",len(rows))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase62g-clipping-constraints
+          path: validation/phase6/phase62g-constraints/
+
+  loco_seed:
+    needs: clipping_constraints
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        held: [nisqa_p501, nisqa_test_for, openace, tcd, tmhint]
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase62g-clipping-constraints
+          path: validation/phase6/phase62g-constraints
+      - name: Run one clipping-regularized held-corpus seed
+        run: |
+          mkdir -p validation/phase6/phase62g-seeds
+          python validation/phase62g_train_seed.py             validation/phase6/sequence-cache-v2/sequences.csv             --constraints validation/phase6/phase62g-constraints/cache/sequences.csv             --held "${{ matrix.held }}" --seed "${{ matrix.seed }}" --max-epochs 80             --out "validation/phase6/phase62g-seeds/clipreg__${{ matrix.held }}__${{ matrix.seed }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase62g-seed-${{ matrix.held }}-${{ matrix.seed }}
+          path: validation/phase6/phase62g-seeds/*.json
+
+  aggregate:
+    needs: loco_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install metric runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase62g-seed-*
+          merge-multiple: true
+          path: validation/phase6/phase62g-seeds
+      - name: Reconstruct three-seed held-corpus ensembles
+        run: |
+          mkdir -p validation/phase6/phase62g-folds
+          for held in nisqa_p501 nisqa_test_for openace tcd tmhint; do
+            python validation/phase6_aggregate_fold_seeds.py               --seed-report "validation/phase6/phase62g-seeds/clipreg__${held}__20260926.json"               --seed-report "validation/phase6/phase62g-seeds/clipreg__${held}__20260927.json"               --seed-report "validation/phase6/phase62g-seeds/clipreg__${held}__20260928.json"               --out "validation/phase6/phase62g-folds/clipreg__${held}.json"
+          done
+          args=()
+          for f in validation/phase6/phase62g-folds/*.json; do args+=(--report "$f"); done
+          python validation/phase6_aggregate_sequence.py "${args[@]}"             --out validation/phase6/phase62g-selection.json
+      - name: Enforce predeclared subjective no-regression guardrails
+        run: |
+          python validation/phase62g_guardrail.py             validation/phase6/phase62g-selection.json             --out validation/phase6/phase62g-guardrail.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase62g-held-corpus
+          path: |
+            validation/phase6/phase62g-seeds/
+            validation/phase6/phase62g-folds/
+            validation/phase6/phase62g-selection.json
+            validation/phase6/phase62g-guardrail.json
+
+  final_seed:
+    needs: [clipping_constraints,aggregate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        seed: [20260926,20260927,20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase62g-clipping-constraints
+          path: validation/phase6/phase62g-constraints
+      - name: Fit full-development Phase 6.2G seed
+        run: |
+          python validation/phase62g_train_final.py             validation/phase6/sequence-cache-v2/sequences.csv             --constraints validation/phase6/phase62g-constraints/cache/sequences.csv             --seed "${{ matrix.seed }}" --max-epochs 80             --outdir validation/phase6/phase62g-final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase62g-final-seed-${{ matrix.seed }}
+          path: validation/phase6/phase62g-final/
+
+  qualify:
+    needs: final_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen qualification runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0 onnx==1.19.0 onnxruntime==1.23.1
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase62g-final-seed-*
+          merge-multiple: true
+          path: validation/phase6/phase62g-final
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase62g-held-corpus
+          path: validation/phase6/phase62g-held
+      - name: Export aligned ONNX models
+        run: |
+          sample="$(find validation/phase6/sequence-cache-v2/npz -name '*.npz' | sort | head -1)"
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase62_export_padding_safe_onnx.py               --state "validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed${seed}.pt"               --sample-trace "$sample"               --output "validation/phase6/phase62g-final/clipreg-seed${seed}.onnx"
+          done
+      - name: Check PyTorch to ONNX parity for every seed
+        run: |
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase62_parity_padding_safe.py               --state "validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed${seed}.pt"               --onnx "validation/phase6/phase62g-final/clipreg-seed${seed}.onnx"               --sequences validation/phase6/sequence-cache-v2/sequences.csv               --max-samples 64 --mos-tol 0.0001               --out "validation/phase6/phase62g-final/parity-seed${seed}.json"
+          done
+      - name: Apply unchanged protected engineering gate
+        id: engineering
+        shell: bash
+        run: |
+          set +e
+          python validation/phase62g_score_engineering.py             validation/phase6/model-engineering-v2/cache/sequences.csv             --onnx validation/phase6/phase62g-final/clipreg-seed20260926.onnx             --onnx validation/phase6/phase62g-final/clipreg-seed20260927.onnx             --onnx validation/phase6/phase62g-final/clipreg-seed20260928.onnx             --out validation/phase6/phase62g-final/engineering-report.json
+          rc=$?
+          echo "engineering_rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Build immutable qualified bundle
+        if: steps.engineering.outputs.engineering_rc == '0'
+        run: |
+          python validation/phase62g_make_bundle.py             --onnx validation/phase6/phase62g-final/clipreg-seed20260926.onnx             --onnx validation/phase6/phase62g-final/clipreg-seed20260927.onnx             --onnx validation/phase6/phase62g-final/clipreg-seed20260928.onnx             --state validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260926.pt             --state validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260927.pt             --state validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260928.pt             --training-report validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260926.json             --training-report validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260927.json             --training-report validation/phase6/phase62g-final/learned-bands-padding-safe-clipreg-seed20260928.json             --parity-report validation/phase6/phase62g-final/parity-seed20260926.json             --parity-report validation/phase6/phase62g-final/parity-seed20260927.json             --parity-report validation/phase6/phase62g-final/parity-seed20260928.json             --guardrail-report validation/phase6/phase62g-held/phase62g-guardrail.json             --engineering-report validation/phase6/phase62g-final/engineering-report.json             --output validation/phase6/phase62g-final/bundle.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase62g-qualification
+          path: validation/phase6/phase62g-final/
+      - name: Enforce engineering promotion gate
+        if: steps.engineering.outputs.engineering_rc != '0'
+        run: exit 2
