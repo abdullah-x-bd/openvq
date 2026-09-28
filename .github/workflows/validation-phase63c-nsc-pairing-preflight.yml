@@ -1,4 +1,4 @@
-name: validation-phase63c-nsc-pairing-preflight
+name: validation-phase63c-nsc-pairing-preflight\n# extraction contract revision 2
 
 on:
   workflow_dispatch:
@@ -32,8 +32,10 @@ jobs:
           out=Path("validation/phase6/phase63c-nsc/raw")
           with RemoteZip(url) as z:
               names=z.namelist()
-              mm=[n for n in names if "NISQA_TEST_NSC/" in n and not n.endswith("/")]
-              if not mm:raise SystemExit("NISQA_TEST_NSC absent from pinned archive")
+              mm=[n for n in names if "NISQA_TEST_NSC" in n.upper() and not n.endswith("/")]
+              if not mm:
+                  nearby=[n for n in names if "NSC" in n.upper()][:50]
+                  raise SystemExit("NISQA_TEST_NSC absent from pinned archive; NSC-like members="+repr(nearby))
               for n in mm:z.extract(n,path=out)
           print("extracted",len(mm),"TEST_NSC members")
           PY
