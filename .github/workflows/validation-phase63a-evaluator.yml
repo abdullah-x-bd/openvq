@@ -1,4 +1,4 @@
-name: validation-phase63a-evaluator
+name: validation-phase63a-evaluator\n# phase63a contract revision 2
 
 on:
   workflow_dispatch:
