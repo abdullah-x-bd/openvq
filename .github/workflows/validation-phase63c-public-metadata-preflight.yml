@@ -1,0 +1,30 @@
+name: validation-phase63c-public-metadata-preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase63c_probe_public_metadata.py"
+      - ".github/workflows/validation-phase63c-public-metadata-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  public_metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Inspect only non-subjective public Track-1 metadata
+        run: |
+          mkdir -p validation/phase6/phase63c-preflight
+          python validation/phase63c_probe_public_metadata.py             --out validation/phase6/phase63c-preflight/public-metadata.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase63c-public-metadata-preflight
+          path: validation/phase6/phase63c-preflight/public-metadata.json
