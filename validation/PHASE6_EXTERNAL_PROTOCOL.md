@@ -2,11 +2,20 @@
 
 ## Status
 
-This protocol remains reserved.
+This protocol is now the next eligible validation stage.
 
-The Phase 6.1 hybrid development candidate is **not eligible** to consume the external reserve because it failed the independent engineering promotion gate.
+The Phase 6.2G candidate has passed the model-side engineering and deployment-parity requirements and has an immutable qualified development bundle.
+
+Frozen candidate:
+
+- source commit `9c59fec790e0490c22b363474dd75b476f891f8f`;
+- pipeline ID `openvq-phase62g-749eaa80ea0a796cc15c`;
+- qualification artifact `10980470659`;
+- artifact ZIP SHA-256 `407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c`.
 
 URGENT 2026 subjective labels remain unconsumed.
+
+The reserve must stay unopened until the remaining external-run inputs, especially the verified full-reference source map, exclusions, and bootstrap unit, are frozen.
 
 ## Preconditions
 
@@ -20,6 +29,27 @@ An external run requires:
 6. fixed pairing and exclusion rules;
 7. fixed statistics and bootstrap unit;
 8. a passed independent engineering promotion gate.
+
+## Phase 6.2G eligibility record
+
+The following model-side preconditions are complete:
+
+- frozen candidate source commit;
+- immutable candidate artifact;
+- fixed three-seed ensemble rule;
+- passed PyTorch-to-ONNX parity;
+- passed independent protected engineering gate;
+- frozen development evidence and no-regression results.
+
+The following reserve-side items must be verified and frozen before subjective-label consumption:
+
+- exact full-reference source map;
+- source-map SHA-256;
+- final inclusion/exclusion ledger;
+- fixed statistics implementation;
+- fixed source-cluster bootstrap unit.
+
+No candidate tuning is permitted from URGENT results without reclassifying URGENT as development evidence.
 
 ## Reserve
 

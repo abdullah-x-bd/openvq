@@ -43,7 +43,15 @@ The engineering contract includes active Release tests, periodic-delay regressio
 
 ## Local sequence representation
 
-`openvq-trace-v1-2026-09-26` preserves local evidence at a 10 ms hop using:
+The current Phase 6 local representation is:
+
+`openvq-trace-v2-2026-09-27`
+
+with implementation:
+
+`openvq-trace-spectral-v2-fft-corrected-2026-09-27`.
+
+Trace V2 preserves local evidence at a 10 ms hop using:
 
 - 64 reference auditory bands;
 - 64 degraded auditory bands;
@@ -58,19 +66,34 @@ The engineering contract includes active Release tests, periodic-delay regressio
 
 Inactive and unmatched regions remain explicit rather than being silently discarded.
 
+Trace V2 supersedes Trace V1 after correction of the trace-only FFT butterfly indexing defect. The frozen Phase 6A native analyzer was unaffected by that historical defect.
+
 ## Mapping research
 
-Phase 6B established that balanced neural mapping over global summaries improves known-domain development performance but does not solve leave-corpus-out transfer.
+Phase 6B established that balanced neural mapping over global summaries improves known-domain development performance but does not solve leave-one-corpus-out transfer.
 
-Phase 6E then compared three compact sequence models.
+Corrected Trace V2 changed the sequence-model conclusion. Under the unchanged Phase 6.2C grid, `learned_bands` became the preferred architecture and raw hybrid fusion collapsed.
 
-The hybrid architecture won the frozen worst-corpus selection rule, but its full-development candidate failed engineering sanity. The current algorithm therefore does not use that neural candidate as the released quality mapping.
+Phase 6.2E then made the learned-bands temporal path padding-safe by masking padded frames after each encoder and TCN stage and replacing BatchNorm1d with per-frame channel LayerNorm.
+
+Phase 6.2F aligned full-development qualification with the same three-seed ensemble used in evaluation. It isolated one remaining protected failure: severe clipping ordering.
+
+Phase 6.2G kept the architecture fixed and added only a clipping-order hinge constraint using property fixtures that are separate from the protected engineering gate.
+
+The final research mapper is therefore:
+
+- architecture `learned_bands_padding_safe_clipreg`;
+- three fixed seeds;
+- arithmetic mean of raw quality predictions;
+- clamp ensemble quality to [0,1] before MOS conversion.
+
+This mapper is an engineering-qualified development artifact. It is not yet the stable released quality mapping because untouched external validation is still pending.
 
 ## Engineering constraints
 
 Model quality is evaluated independently from subjective fit.
 
-A promotable model must preserve at least:
+A promotable research candidate must preserve at least:
 
 - high identity quality;
 - transport-delay invariance within the frozen tolerance;
@@ -81,7 +104,15 @@ A promotable model must preserve at least:
 - worsening quality under stronger clipping;
 - worsening quality under mixed degradation.
 
-The Phase 6E hybrid candidate failed identity, dropout, dropout-count, mixed, and noise checks.
+The Phase 6.2G three-seed ensemble passed the unchanged protected gate:
+
+- identity 4.6062 MOS;
+- pure-delay maximum absolute change 0.00924 MOS;
+- zero >0.12 MOS reversals across clipping, dropout, repeated dropout, noise, low-pass, and mixed degradation.
+
+The engineering-qualified bundle is `openvq-phase62g-749eaa80ea0a796cc15c`.
+
+Engineering qualification is a prerequisite for external validation. It is not evidence of external subjective validity by itself.
 
 ## Downstream scope
 

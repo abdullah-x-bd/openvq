@@ -222,14 +222,226 @@ This remains development evidence. URGENT 2026 remains untouched.
 
 ## 6.2F aligned engineering qualification
 
-The next qualification stage uses the exact deployment shape implied by the Phase 6.2E evidence:
+Canonical run:
 
-- three fixed seeds `20260926`, `20260927`, and `20260928`;
-- full-development fitting for each seed;
-- one ONNX model per seed;
-- ensemble prediction by averaging raw quality outputs across the three models;
-- PyTorch-to-ONNX parity for every seed;
-- the existing independent identity, pure-delay, dropout, repeated-dropout, noise, low-pass, clipping, and mixed-degradation gate;
+`36397704754`
+
+The Phase 6.2F candidate aligned qualification with the Phase 6.2E evaluation shape:
+
+- three full-development fits using seeds `20260926`, `20260927`, and `20260928`;
+- one ONNX export per seed;
+- arithmetic mean of raw quality predictions;
+- independent engineering scoring on the ensemble;
 - no URGENT label consumption.
 
-A candidate is eligible for an immutable bundle only if parity and the independent engineering gate pass.
+All three training jobs completed and all three ONNX exports passed PyTorch-to-ONNX parity at the 0.0001 MOS tolerance.
+
+### Engineering result
+
+| Gate | Result |
+| --- | --- |
+| identity | 4.4483 MOS, pass |
+| pure delay | maximum absolute change 0.0389 MOS, pass |
+| dropout severity | pass |
+| repeated-dropout severity | pass |
+| noise severity | pass under frozen 0.12 MOS reversal criterion |
+| low-pass severity | pass |
+| mixed impairment severity | pass |
+| clipping severity | **fail, one reversal** |
+
+The protected clipping sequence was:
+
+| Threshold | MOS |
+| --- | ---: |
+| 0.95 | 4.3376 |
+| 0.50 | 2.1387 |
+| 0.25 | 2.0875 |
+| 0.08 | 2.4201 |
+
+The final severe clipping condition incorrectly rose by about 0.333 MOS.
+
+Because the protected gate failed:
+
+- the qualified bundle step was skipped;
+- the candidate was not promoted;
+- URGENT remained untouched.
+
+Qualification artifact:
+
+- name `openvq-phase62f-engineering-qualification`;
+- artifact ID `10961376404`;
+- artifact ZIP SHA-256 `2b0c1aeaf1aaa20b5650115a0c4089276ca1a4dc10a4df5ed235c369f2cec852`.
+
+## 6.2G clipping-order property constraint
+
+Phase 6.2G targeted the single remaining Phase 6.2F failure without changing the frontend, trace, architecture, held-corpus protocol, seed set, ensemble rule, or protected engineering gate.
+
+### Property fixtures
+
+Training used three separately generated speech-like references and six clipping thresholds:
+
+`0.85, 0.65, 0.45, 0.30, 0.18, 0.11`
+
+Protected gate thresholds remained:
+
+`0.95, 0.50, 0.25, 0.08`
+
+The threshold sets are disjoint.
+
+The property fixtures contain 18 Trace V2 rows and have no subjective-MOS role.
+
+Training added:
+
+- adjacent clipping-order hinge loss;
+- raw-quality margin 0.03, equal to 0.12 MOS;
+- property-loss weight 0.25;
+- one property contribution every four human training batches.
+
+Early stopping remained human-only corpus-balanced validation RMSE.
+
+Constraint artifact:
+
+- name `openvq-phase62g-clipping-constraints`;
+- artifact ID `10969564021`.
+
+### Predeclared subjective guardrails
+
+Phase 6.2G had to preserve:
+
+- positive Pearson and Spearman on all five held corpora;
+- at least 90% of the Phase 6.2E worst held-corpus correlation;
+- at least 95% of the Phase 6.2E mean held-corpus correlation;
+- worst normalized RMSE within 105% of Phase 6.2E.
+
+Guardrail thresholds were:
+
+- worst correlation at least 0.17097;
+- mean correlation at least 0.43230;
+- worst normalized RMSE at most 0.32152.
+
+All guardrails passed.
+
+### Phase 6.2G held-corpus ensembles
+
+| Held corpus | Pearson | Spearman | normalized RMSE | MAE | bias |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| NISQA P501 | 0.6551 | 0.6384 | 0.1943 | 0.1546 | -0.0281 |
+| NISQA TEST_FOR | 0.5640 | 0.4656 | 0.1850 | 0.1535 | 0.0042 |
+| OpenACE | 0.4213 | 0.4659 | 0.2135 | 0.1877 | -0.0046 |
+| TCD | 0.5901 | 0.6129 | 0.2818 | 0.2435 | -0.1977 |
+| TMHINT | 0.3541 | 0.3281 | 0.2919 | 0.2421 | -0.2112 |
+
+Aggregate objective:
+
+- worst held-corpus correlation 0.3280675;
+- mean held-corpus correlation 0.4887042;
+- worst normalized RMSE 0.2918971.
+
+Compared with Phase 6.2E:
+
+| Objective | Phase 6.2E | Phase 6.2G |
+| --- | ---: | ---: |
+| worst held-corpus correlation | 0.1900 | **0.3281** |
+| mean held-corpus correlation | 0.4551 | **0.4887** |
+| worst normalized RMSE | 0.3062 | **0.2919** |
+
+The clipping-order constraint therefore did not merely repair the engineering defect. Under the frozen aggregate criteria, cross-domain robustness improved as well.
+
+Held-corpus artifact:
+
+- name `openvq-phase62g-held-corpus`;
+- artifact ID `10975650939`.
+
+URGENT remained untouched.
+
+## 6.2G final engineering qualification
+
+The final three full-development seeds completed successfully.
+
+The unchanged protected gate passed with **zero failures**.
+
+Identity:
+
+- observed MOS 4.6062;
+- requirement at least 4.4;
+- result pass.
+
+Pure delay:
+
+- maximum absolute MOS change 0.00924;
+- requirement at most 0.20;
+- result pass.
+
+Protected monotonic families:
+
+| Family | >0.12 MOS reversals |
+| --- | ---: |
+| clipping | 0 |
+| dropout | 0 |
+| repeated dropout | 0 |
+| noise | 0 |
+| low-pass | 0 |
+| mixed impairment | 0 |
+
+The corrected protected clipping sequence was:
+
+| Threshold | MOS |
+| --- | ---: |
+| 0.95 | 4.4760 |
+| 0.50 | 2.0543 |
+| 0.25 | 1.7905 |
+| 0.08 | 1.5014 |
+
+Noise also became cleanly ordered across the protected subset:
+
+| SNR | MOS |
+| --- | ---: |
+| 40 dB | 1.7601 |
+| 20 dB | 1.4642 |
+| 10 dB | 1.3755 |
+| 0 dB | 1.3403 |
+
+### ONNX parity
+
+All three final models passed the 0.0001 MOS tolerance.
+
+- seed 20260926 maximum absolute MOS difference 0.00000119;
+- seed 20260927 maximum absolute MOS difference 0.00000095;
+- seed 20260928 maximum absolute MOS difference 0.00000167.
+
+### Immutable qualified development bundle
+
+The bundle step executed successfully.
+
+- source commit `9c59fec790e0490c22b363474dd75b476f891f8f`;
+- model mode `learned_bands_padding_safe_clipreg`;
+- seeds `20260926`, `20260927`, `20260928`;
+- pipeline ID `openvq-phase62g-749eaa80ea0a796cc15c`;
+- qualification artifact `openvq-phase62g-qualification`;
+- artifact ID `10980470659`;
+- artifact ZIP SHA-256 `407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c`.
+
+ONNX SHA-256:
+
+- seed 20260926 `7bb40fc128ecc902271be93076a3af21b35f1f142ddcf3cb9b6798d90b1f0821`;
+- seed 20260927 `64cb9ba8e769b8c8e2801e4c1fe3b143ddf2ca0b033ce68885430ce85a32981d`;
+- seed 20260928 `8ed003ef19bd6b640951f0b1ee6b02c47b5a4573f17eba7e8d477e06685b514b`.
+
+## Phase 6.2 result
+
+Phase 6.2G is the first learned OpenVQ candidate in this research line that simultaneously:
+
+- uses corrected Trace V2;
+- maintains positive ensemble Pearson and Spearman across all five completely held-out development corpora;
+- passes the predeclared subjective no-regression guardrails;
+- passes deployment parity;
+- passes the unchanged protected engineering gate;
+- has an immutable qualified development bundle.
+
+The result remains development evidence.
+
+It does **not** establish external validity, POLQA equivalence, P.863 conformance, or general superiority to POLQA.
+
+URGENT 2026 subjective labels remain untouched.
+
+The next step is external validation of the exact frozen Phase 6.2G bundle under the reserved protocol.

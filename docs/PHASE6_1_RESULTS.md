@@ -4,9 +4,9 @@
 
 ## Status
 
-Phase 6.1 is the current OpenVQ research milestone.
+Phase 6.1 is a historical OpenVQ research milestone, superseded by Phase 6.2. It remains the canonical record of the Trace V1 sequence experiments and Phase 6F promotion failure.
 
-It consolidates the completed Phase 6A-E evidence and records the Phase 6F promotion failure. No Phase 6 sequence model is promoted into the released scoring path.
+Current corrected-trace and engineering-qualified development evidence is recorded in [Phase 6.2 results](PHASE6_2_RESULTS.md). No Phase 6 learned model has yet been promoted into the stable released scoring path.
 
 ## Phase 6A frontend freeze
 

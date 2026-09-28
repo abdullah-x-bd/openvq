@@ -10,49 +10,50 @@ OpenVQ is **not POLQA**, does not implement ITU-T P.863, and does not currently 
 
 > **Trace V1 correctness erratum.** A confirmed FFT indexing defect affects the Phase 6.1 local sequence traces and therefore all three recorded Phase 6E sequence arms. Phase 6A native analysis is unaffected because it uses a separate correct FFT. Phase 6.2 introduces corrected Trace V2 and reruns the original model grid before training changes. See [the erratum](docs/PHASE6_1_TRACE_ERRATUM.md).
 
-The latest research milestone is **Phase 6.2E**, with Phase 6.2F engineering qualification now defined.
+The latest research milestone is **Phase 6.2G**.
 
 This branch contains the current Phase 6 research implementation and evidence pipeline. The default `main` branch remains the stable baseline.
 
-Phase 6.1 established a frozen native frontend, repaired validation infrastructure, a canonical five-corpus registry, a local sequence representation, fair summary-model baselines, compact sequence models, ONNX export, and an independent engineering promotion gate.
+Phase 6.2 repaired the Trace V1 spectral defect, established mathematically checked Trace V2, selected the padding-safe learned-bands representation, and then added a narrowly scoped clipping-order constraint without changing the frozen frontend, held-corpus protocol, seed set, or ensemble rule.
 
-The frozen architecture-selection rule selected the 263,009-parameter hybrid sequence model. It improved completely held-out OpenACE to:
+The final Phase 6.2G three-seed held-corpus results are:
 
-- Pearson 0.3990
-- Spearman 0.4390
-- normalized RMSE 0.2362
+| Held corpus | Pearson | Spearman | normalized RMSE |
+| --- | ---: | ---: | ---: |
+| NISQA P501 | 0.6551 | 0.6384 | 0.1943 |
+| NISQA TEST_FOR | 0.5640 | 0.4656 | 0.1850 |
+| OpenACE | 0.4213 | 0.4659 | 0.2135 |
+| TCD | 0.5901 | 0.6129 | 0.2818 |
+| TMHINT | 0.3541 | 0.3281 | 0.2919 |
 
-The full-development candidate then:
+Aggregate Phase 6.2G objective:
 
-- exported successfully to ONNX;
-- passed PyTorch-to-ONNX parity with maximum absolute difference 0.00000906 MOS;
-- failed the independent engineering gate.
+- worst held-corpus correlation 0.3281;
+- mean held-corpus correlation 0.4887;
+- worst normalized RMSE 0.2919.
 
-The engineering failure included:
+Relative to Phase 6.2E, the weakest held-corpus correlation improved from 0.1900 to 0.3281, mean held-corpus correlation improved from 0.4551 to 0.4887, and worst normalized RMSE improved from 0.3062 to 0.2919.
 
-- clean identity MOS 2.3929, below the required 4.4;
-- two dropout severity reversals;
-- one repeated-dropout reversal;
-- one mixed-impairment reversal;
-- two noise severity reversals.
+The full-development three-seed Phase 6.2G ensemble then passed the unchanged protected engineering gate:
 
-The candidate was therefore **not promoted into the main CLI or Android MOS path**.
+- clean identity MOS 4.6062;
+- pure-delay maximum absolute change 0.00924 MOS;
+- zero >0.12 MOS reversals for clipping, dropout, repeated dropout, noise, low-pass, and mixed impairments;
+- PyTorch-to-ONNX parity passed for all three seeds at the 0.0001 MOS tolerance.
 
-Full evidence is recorded in [Phase 6.1 results](docs/PHASE6_1_RESULTS.md).
+An immutable engineering-qualified development bundle was created:
 
-## Phase 6.2 current result
+- source commit `9c59fec790e0490c22b363474dd75b476f891f8f`;
+- pipeline ID `openvq-phase62g-749eaa80ea0a796cc15c`;
+- workflow run `36422583627`;
+- qualification artifact `10980470659`;
+- artifact ZIP SHA-256 `407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c`.
 
-Corrected Trace V2 changes the sequence-model ranking. Under the unchanged five-corpus, three-seed selection protocol, `learned_bands` is now selected with:
+Phase 6.2G is an **engineering-qualified development candidate**. It is not yet an externally validated model and has not been promoted into the stable CLI or Android MOS path.
 
-- worst held-corpus correlation 0.0894;
-- mean held-corpus correlation 0.4317;
-- worst normalized RMSE 0.3487.
+URGENT 2026 subjective labels remain untouched.
 
-The corrected hybrid model collapses under the same protocol, which makes the hybrid training/fusion contract the current diagnostic target.
-
-See [Phase 6.2 results](docs/PHASE6_2_RESULTS.md).
-
-Phase 6.2D found two additional training-contract issues. The existing temporal models have a small padding-context dependence, and the raw rich-v3 globals span roughly 95.6 million to 1 in standard deviation. Fold-fitted normalization substantially rescues hybrid but leaves OpenACE negative, so corrected learned-bands remains the preferred representation. Phase 6.2E now tests a padding-safe learned-bands architecture before any property losses are introduced.
+See [Phase 6.2 results](docs/PHASE6_2_RESULTS.md) and [Phase 6.2 execution record](docs/PHASE6_2_PLAN.md).
 
 ## Why OpenVQ exists
 
@@ -137,7 +138,7 @@ The Phase 6 research branch additionally exports a local trace with:
 
 Trace schema:
 
-`openvq-trace-v1-2026-09-26`
+`openvq-trace-v2-2026-09-27`
 
 ## Architecture
 
@@ -162,7 +163,7 @@ degraded audio -----------------------+
                          +------------+------------+
                          |                         |
                          v                         v
-                 global rich-v3 features     local trace v1
+                 global rich-v3 features     local Trace V2
                          |                         |
                          +------------+------------+
                                       |
@@ -172,7 +173,7 @@ degraded audio -----------------------+
 
 The stable runtime foundation ends before the research mapper.
 
-The latest neural candidate remains a research artifact because it did not satisfy the independent engineering gate.
+The Phase 6.2G neural ensemble is an engineering-qualified development artifact. External validation is still required before any release-path promotion.
 
 ## Development history
 
@@ -451,6 +452,34 @@ The failed gate intentionally stopped product bundling.
 
 Phase 6.1 therefore retains the frontend and sequence representation but rejects the current learned mapper as a release model.
 
+### Phase 6.2
+
+Phase 6.2 corrected the local trace and then tightened the learned-model contract in controlled stages.
+
+- 6.2A-B corrected the Trace V1 FFT indexing defect, added direct numerical correctness tests, and froze Trace V2.
+- 6.2C reran the original sequence grid unchanged and selected corrected `learned_bands`.
+- 6.2D diagnosed padding-context dependence and hybrid global-feature scale mismatch.
+- 6.2E introduced padding-safe masking and per-frame channel LayerNorm. Every held corpus became positively correlated.
+- 6.2F aligned full-development qualification with the three-seed ensemble. It passed all protected checks except one clipping-severity reversal.
+- 6.2G added a clipping-order property constraint using separate fixtures with thresholds disjoint from the protected gate.
+
+Phase 6.2G passed the predeclared subjective no-regression guardrails and improved the aggregate held-corpus objective to 0.3281 worst correlation, 0.4887 mean correlation, and 0.2919 worst normalized RMSE.
+
+The unchanged protected engineering gate then passed with zero failures. The formerly failing clipping sequence became:
+
+| Protected clipping threshold | MOS |
+| --- | ---: |
+| 0.95 | 4.4760 |
+| 0.50 | 2.0543 |
+| 0.25 | 1.7905 |
+| 0.08 | 1.5014 |
+
+The final three ONNX models passed parity with maximum absolute MOS differences of 0.00000119, 0.00000095, and 0.00000167.
+
+The resulting immutable development bundle is `openvq-phase62g-749eaa80ea0a796cc15c`.
+
+URGENT 2026 remains untouched. The next scientific step is one-time external validation of this frozen candidate under the reserved protocol.
+
 ## Datasets and evidence status
 
 | Dataset | Current role |
@@ -514,7 +543,7 @@ The Android native build shares the OpenVQ C++ analyzer sources.
 
 The Phase 6 research branch also includes the local trace-native path.
 
-The failed Phase 6E neural model is **not** the released Android MOS path.
+The Phase 6.2G neural ensemble is **not yet** the released Android MOS path. Android integration remains on the native analyzer path until external validation and release qualification are complete.
 
 ## ViSQOL relationship
 
@@ -596,6 +625,52 @@ Both requirements matter.
 - artifact SHA-256 `3912c8581c907d779e37e9728c3144208f4a70e25b7547396c1730c774203068`
 - ONNX SHA-256 `cea7b5e17cf5e7bf183e994cf7c8c24cf509f553d5d4c6ac5329bdb9b93ff7df`
 
+### Phase 6.2 Trace V2
+
+- source `bc2637808f1299570eb74e4b2282da1532fc53f2`
+- run `36306154897`
+- artifact `10928082645`
+- artifact SHA-256 `1cfb4066a2461c08166cf10555ce287aa63310d68a1186a7573a39b4b0b0aff6`
+
+### Phase 6.2 corrected-trace baseline
+
+- artifact `10931420305`
+- artifact SHA-256 `161e19fb8964177bdc00879ea8fc4606bfac0eb163a8dda669d4d1e07c30deea`
+
+### Phase 6.2D diagnostics
+
+- run `36319146056`
+- diagnostics artifact `10932370265`
+- diagnostics SHA-256 `b2b154f0f9837a8b9f1bdb48b7eb8a65dddc9a5cf48f089af8b824615a2f1f4a`
+- normalized-hybrid artifact `10932529605`
+- normalized-hybrid SHA-256 `d0667c42cfbccaca345feedcb8890d11e08f1177e4a5c844c3ceca33257c2fb4`
+
+### Phase 6.2E padding-safe model
+
+- run `36330893596`
+- artifact `10937636963`
+- artifact ZIP SHA-256 `7d222696a891cfbb4d8ae6dda8131c259d41840a187d0319ad886d96ec43ce0b`
+
+### Phase 6.2F engineering qualification
+
+- run `36397704754`
+- qualification artifact `10961376404`
+- artifact ZIP SHA-256 `2b0c1aeaf1aaa20b5650115a0c4089276ca1a4dc10a4df5ed235c369f2cec852`
+- result: one protected clipping reversal, no bundle promotion
+
+### Phase 6.2G engineering-qualified candidate
+
+- source `9c59fec790e0490c22b363474dd75b476f891f8f`
+- run `36422583627`
+- clipping-constraint artifact `10969564021`
+- held-corpus artifact `10975650939`
+- qualification artifact `10980470659`
+- qualification artifact ZIP SHA-256 `407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c`
+- pipeline ID `openvq-phase62g-749eaa80ea0a796cc15c`
+- seed 20260926 ONNX SHA-256 `7bb40fc128ecc902271be93076a3af21b35f1f142ddcf3cb9b6798d90b1f0821`
+- seed 20260927 ONNX SHA-256 `64cb9ba8e769b8c8e2801e4c1fe3b143ddf2ca0b033ce68885430ce85a32981d`
+- seed 20260928 ONNX SHA-256 `8ed003ef19bd6b640951f0b1ee6b02c47b5a4573f17eba7e8d477e06685b514b`
+
 ## Repository structure
 
 ```
@@ -612,45 +687,48 @@ validation/     dataset preparation, experiments, protocols, evidence
 
 ## What comes next
 
-The Phase 6.1 result narrows the next problem.
+Phase 6.2 development is complete through the engineering-qualified Phase 6.2G bundle.
 
-The local sequence representation appears worth keeping. The immediate research target is the learned quality mapping.
+The next step is **Phase 6.3 external validation**. The exact 6.2G bundle must remain frozen while the external protocol is finalized and the URGENT 2026 full-reference source map is independently verified.
 
-The next iteration should focus on:
+The intended order is:
 
-- explicit identity constraints
-- explicit impairment-order constraints
-- corpus-balanced calibration
-- domain-robust objectives
-- seed stability
-- preserving the positive OpenACE transfer
-- retesting all five completely held corpora
-- passing the independent engineering gate before external reserve consumption
+1. freeze the exact 6.2G candidate and its provenance;
+2. verify the URGENT full-reference source map, exclusions, and bootstrap unit without using subjective labels for tuning;
+3. consume the URGENT reserve once under the predeclared protocol;
+4. report Pearson, Spearman, MOS RMSE, MAE, signed bias, saturation, coverage, and source-cluster bootstrap intervals;
+5. if the frozen external result is adequate, obtain lawful POLQA scores on the exact same eligible pairs;
+6. run the predeclared paired OpenVQ-versus-POLQA error comparison.
 
-Only after a candidate passes those gates should URGENT 2026 be opened.
+If URGENT results influence the model, URGENT becomes development evidence and a changed candidate requires genuinely new reserved evidence.
 
 ## Scientific claim boundary
 
 Current evidence supports describing OpenVQ as:
 
-- an independently derived full-reference speech-quality research engine
-- a native telecom/perceptual diagnostic system
-- a reproducible research pipeline with frozen frontend and trace contracts
-- a project with documented human-subjective, cross-domain, and engineering evaluation
+- an independently derived full-reference speech-quality research engine;
+- a native telecom/perceptual diagnostic system;
+- a reproducible research pipeline with frozen frontend and Trace V2 contracts;
+- a project with documented human-subjective, cross-domain, deployment-parity, and engineering evaluation;
+- a project with an engineering-qualified Phase 6.2G development candidate.
 
 Current evidence does **not** support describing OpenVQ as:
 
-- POLQA-equivalent
-- a general POLQA replacement
-- P.863 compliant
-- generally superior to POLQA
-- externally validated at Phase 6.1
+- POLQA-equivalent;
+- a general POLQA replacement;
+- P.863 compliant;
+- generally superior to POLQA;
+- externally validated on the untouched URGENT 2026 reserve.
 
 ## Documentation
 
-- [Phase 6.1 results](docs/PHASE6_1_RESULTS.md)
-- [Stable algorithm baseline](docs/ALGORITHM.md)
-- [Validation status](docs/VALIDATION.md)
+- [Phase 6.2 results](docs/PHASE6_2_RESULTS.md)
+- [Phase 6.2 execution record](docs/PHASE6_2_PLAN.md)
+- [Phase 6.1 historical results](docs/PHASE6_1_RESULTS.md)
+- [Phase 6.1 Trace V1 erratum](docs/PHASE6_1_TRACE_ERRATUM.md)
+- [Algorithm](docs/ALGORITHM.md)
+- [Validation framework](docs/VALIDATION.md)
+- [Phase 6 external protocol](validation/PHASE6_EXTERNAL_PROTOCOL.md)
 
 The complete Phase 5.1 and Phase 6 research documentation is maintained in this branch under `docs/` and `validation/`.
 
