@@ -1,4 +1,4 @@
-name: validation-phase63c-nsc-pairing-preflight\n# extraction contract revision 2
+name: validation-phase63c-nsc-pairing-preflight\n# extraction contract revision 3
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
           python - <<'PY'
           from remotezip import RemoteZip
           from pathlib import Path
-          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          url="https://depositonce.tu-berlin.de/bitstream/11303/13012.5/9/NISQA_Corpus.zip"
           out=Path("validation/phase6/phase63c-nsc/raw")
           with RemoteZip(url) as z:
               names=z.namelist()
