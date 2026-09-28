@@ -1,0 +1,343 @@
+name: validation-phase63b-r1-repaired-candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "src/preprocessing.cpp"
+      - "include/openvq/preprocessing.h"
+      - "include/openvq/trace.h"
+      - "tests/test_preprocessing.cpp"
+      - "validation/phase63_feature_schema.py"
+      - "validation/phase63_extract_features.py"
+      - "validation/phase63_export_sequences.py"
+      - "validation/phase63_select_dev_refs.py"
+      - "validation/phase63_make_invariance_cases.py"
+      - "validation/phase63_repaired_model.py"
+      - "validation/phase63_train_seed.py"
+      - "validation/phase63_train_final.py"
+      - "validation/phase63_guardrail.py"
+      - "validation/phase63_score_ensemble.py"
+      - "validation/phase63_engineering_gate.py"
+      - "validation/phase63_export_onnx.py"
+      - "validation/phase63_make_bundle.py"
+      - "validation/phase63b_report.py"
+      - ".github/workflows/validation-phase63b-r1-repaired-candidate.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PHASE6B_RUN_ID: "36233995161"
+  PHASE6B_ARTIFACT: "openvq-phase6b-summary"
+
+jobs:
+  data_v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install pinned data runtime
+        run: |
+          python -m pip install --disable-pip-version-check             numpy==2.1.3 soundfile==0.13.1 huggingface_hub==0.35.1             openpyxl==3.1.5 remotezip==0.12.3 pyyaml==6.0.2
+      - name: Build and test versioned frontend
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          test -x build/openvq_cli
+          test -x build/openvq_trace_cli
+      - name: Download frozen Phase 6B registry evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.PHASE6B_ARTIFACT }}
+          run-id: ${{ env.PHASE6B_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6/baseline
+      - name: Recreate TCD development audio
+        run: |
+          mkdir -p validation/phase6/data/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa             TCD-VOIP.zip --local-dir validation/phase6/data/tcd
+          unzip -q validation/phase6/data/tcd/TCD-VOIP.zip -d validation/phase6/data/tcd/extracted
+          python validation/tcd_prepare.py validation/phase6/data/tcd/extracted validation/phase6/data/tcd/manifests
+      - name: Recreate NISQA P501 and TEST_FOR audio
+        run: |
+          set -e
+          success=0
+          for attempt in 1 2 3 4 5; do
+            rm -rf validation/phase6/data/p501 validation/phase6/data/test-for
+            mkdir -p validation/phase6/data/p501 validation/phase6/data/test-for
+            if python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          roots={"NISQA_TEST_P501/":Path("validation/phase6/data/p501"),
+                 "NISQA_TEST_FOR/":Path("validation/phase6/data/test-for")}
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              for token,out in roots.items():
+                  mm=[n for n in names if token in n and not n.endswith("/")]
+                  if not mm:raise SystemExit("missing "+token)
+                  for n in mm:z.extract(n,path=out)
+          PY
+            then success=1; break; fi
+            sleep $((attempt * 20))
+          done
+          test "$success" -eq 1
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/p501             validation/phase6/data/p501.csv --family NISQA_TEST_P501 --expected 240
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/test-for             validation/phase6/data/test-for.csv --family NISQA_TEST_FOR --expected 240
+      - name: Recreate pinned OpenACE audio
+        run: |
+          mkdir -p validation/phase6/data/openace
+          REVISION="$(cat validation/phase6/baseline/data/openace/revision.txt)"
+          hf download --repo-type dataset mcernak/EARS-EMO-OpenACE             --revision "$REVISION" --local-dir validation/phase6/data/openace/raw
+          python validation/openace_prepare.py validation/phase6/data/openace/raw validation/phase6/data/openace-raw.csv
+          python validation/manifest_pcm16.py validation/phase6/data/openace-raw.csv             validation/phase6/data/openace.csv validation/phase6/data/openace-pcm16
+      - name: Recreate pinned TMHINT audio
+        run: |
+          mkdir -p validation/phase6/data/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa             TMHINTQI.zip --local-dir validation/phase6/data/tmhint
+          unzip -q validation/phase6/data/tmhint/TMHINTQI.zip -d validation/phase6/data/tmhint/extracted
+          python validation/phase6_tmhint_prepare.py validation/phase6/data/tmhint/extracted             validation/phase6/data/tmhint.csv --archive validation/phase6/data/tmhint/TMHINTQI.zip             --exclusions validation/phase6/data/tmhint-exclusions.csv
+      - name: Verify exact recreated development waveforms
+        run: python validation/phase6_verify_audio_registry.py validation/phase6/baseline/canonical-manifest.csv
+      - name: Extract rich-v4 development features and Trace V3
+        run: |
+          mkdir -p validation/phase6/phase63b-r1-data
+          python validation/phase63_extract_features.py             validation/phase6/baseline/canonical-manifest.csv             validation/phase6/phase63b-r1-data/development-features.csv             --target-field target_normalized --target-scale normalized --cli ./build/openvq_cli --jobs 4
+          python validation/phase63_export_sequences.py             validation/phase6/baseline/canonical-manifest.csv             validation/phase6/phase63b-r1-data/development-features.csv             validation/phase6/phase63b-r1-data/development             --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Freeze disjoint primary and secondary real-speech references
+        run: |
+          python validation/phase63_select_dev_refs.py             --tcd-root validation/phase6/data/tcd/extracted             --tmhint-root validation/phase6/data/tmhint/extracted             --primary validation/phase6/phase63b-r1-data/primary-references.csv             --secondary validation/phase6/phase63b-r1-data/secondary-references.csv             --out validation/phase6/phase63b-r1-data/reference-selection.json
+      - name: Build identity/invariance property traces
+        run: |
+          python validation/phase63_make_invariance_cases.py             validation/phase6/phase63b-r1-data/primary-references.csv             validation/phase6/phase63b-r1-data/invariance-audio             validation/phase6/phase63b-r1-data/invariance-manifest.csv
+          python validation/phase63_extract_features.py             validation/phase6/phase63b-r1-data/invariance-manifest.csv             validation/phase6/phase63b-r1-data/invariance-features.csv             --target-field target_normalized --target-scale normalized --cli ./build/openvq_cli --jobs 4
+          python validation/phase63_export_sequences.py             validation/phase6/phase63b-r1-data/invariance-manifest.csv             validation/phase6/phase63b-r1-data/invariance-features.csv             validation/phase6/phase63b-r1-data/invariance-cache             --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Rebuild clipping-order constraints under Trace V3
+        run: |
+          python validation/phase62g_clipping_constraint_pairs.py             validation/phase6/phase63b-r1-data/clipping-audio             validation/phase6/phase63b-r1-data/clipping-manifest.csv
+          python validation/phase63_extract_features.py             validation/phase6/phase63b-r1-data/clipping-manifest.csv             validation/phase6/phase63b-r1-data/clipping-features.csv             --target-field target_normalized --target-scale normalized --cli ./build/openvq_cli --jobs 4
+          python validation/phase63_export_sequences.py             validation/phase6/phase63b-r1-data/clipping-manifest.csv             validation/phase6/phase63b-r1-data/clipping-features.csv             validation/phase6/phase63b-r1-data/clipping-cache             --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Rebuild historical synthetic engineering set under Trace V3
+        run: |
+          python validation/phase6_engineering_pairs.py             validation/phase6/phase63b-r1-data/engineering-audio             validation/phase6/phase63b-r1-data/engineering-manifest.csv
+          python validation/phase63_extract_features.py             validation/phase6/phase63b-r1-data/engineering-manifest.csv             validation/phase6/phase63b-r1-data/engineering-features.csv             --dataset engineering --target-field human_mos --target-scale mos1to5             --cli ./build/openvq_cli --jobs 4
+          python validation/phase63_export_sequences.py             validation/phase6/phase63b-r1-data/engineering-manifest.csv             validation/phase6/phase63b-r1-data/engineering-features.csv             validation/phase6/phase63b-r1-data/engineering-cache             --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Build disjoint multilingual real-speech qualification set
+        run: |
+          python validation/phase63b_make_cases.py             validation/phase6/phase63b-r1-data/secondary-references.csv             validation/phase6/phase63b-r1-data/secondary-audio             validation/phase6/phase63b-r1-data/secondary-manifest.csv
+          python validation/phase63_extract_features.py             validation/phase6/phase63b-r1-data/secondary-manifest.csv             validation/phase6/phase63b-r1-data/secondary-features.csv             --target-field placeholder_mos --target-scale mos1to5 --cli ./build/openvq_cli --jobs 4
+          python validation/phase63_export_sequences.py             validation/phase6/phase63b-r1-data/secondary-manifest.csv             validation/phase6/phase63b-r1-data/secondary-features.csv             validation/phase6/phase63b-r1-data/secondary-cache             --trace-cli ./build/openvq_trace_cli --jobs 4
+      - name: Freeze Phase 6.3B-R1 data provenance
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          root=Path("validation/phase6/phase63b-r1-data")
+          out={
+            "phase":"6.3B-R1","source_commit":os.environ["GITHUB_SHA"],
+            "frontend_id":"openvq-frontend-phase63b-2026-09-29-v1",
+            "feature_schema_id":"openvq-rich-v4-2026-09-29-v1",
+            "trace_schema_id":"openvq-trace-v3-2026-09-29",
+            "trace_implementation_id":"openvq-trace-v3-transport-fallback-2026-09-29",
+            "development_rows":2463,"reserve_consumed":False,
+            "development_trace_provenance_sha256":sha(root/"development/trace-provenance.json"),
+            "invariance_trace_provenance_sha256":sha(root/"invariance-cache/trace-provenance.json"),
+            "clipping_trace_provenance_sha256":sha(root/"clipping-cache/trace-provenance.json"),
+            "engineering_trace_provenance_sha256":sha(root/"engineering-cache/trace-provenance.json"),
+            "secondary_trace_provenance_sha256":sha(root/"secondary-cache/trace-provenance.json"),
+            "reference_selection_sha256":sha(root/"reference-selection.json"),
+          }
+          (root/"phase63b-r1-data-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase63b-r1-data
+          compression-level: 1
+          path: |
+            validation/phase6/phase63b-r1-data/development/
+            validation/phase6/phase63b-r1-data/invariance-cache/
+            validation/phase6/phase63b-r1-data/clipping-cache/
+            validation/phase6/phase63b-r1-data/engineering-cache/
+            validation/phase6/phase63b-r1-data/secondary-cache/
+            validation/phase6/phase63b-r1-data/secondary-features.csv
+            validation/phase6/phase63b-r1-data/primary-references.csv
+            validation/phase6/phase63b-r1-data/secondary-references.csv
+            validation/phase6/phase63b-r1-data/reference-selection.json
+            validation/phase6/phase63b-r1-data/invariance-audio/property-provenance.json
+            validation/phase6/phase63b-r1-data/clipping-audio/constraint-provenance.json
+            validation/phase6/phase63b-r1-data/phase63b-r1-data-freeze.json
+
+  loco_seed:
+    needs: data_v3
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        held: [nisqa_p501, nisqa_test_for, openace, tcd, tmhint]
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase63b-r1-data
+          path: validation/phase6/phase63b-r1-data
+      - name: Fit one held-corpus-safe R1 seed
+        run: |
+          mkdir -p validation/phase6/phase63b-r1-seeds
+          python validation/phase63_train_seed.py             validation/phase6/phase63b-r1-data/development/sequences.csv             --clip validation/phase6/phase63b-r1-data/clipping-cache/sequences.csv             --invariance validation/phase6/phase63b-r1-data/invariance-cache/sequences.csv             --held "${{ matrix.held }}" --seed "${{ matrix.seed }}" --max-epochs 80             --out "validation/phase6/phase63b-r1-seeds/r1__${{ matrix.held }}__${{ matrix.seed }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase63b-r1-seed-${{ matrix.held }}-${{ matrix.seed }}
+          path: validation/phase6/phase63b-r1-seeds/*.json
+
+  aggregate:
+    needs: loco_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install metric runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase63b-r1-seed-*
+          merge-multiple: true
+          path: validation/phase6/phase63b-r1-seeds
+      - name: Aggregate fixed three-seed folds
+        run: |
+          mkdir -p validation/phase6/phase63b-r1-folds
+          for held in nisqa_p501 nisqa_test_for openace tcd tmhint; do
+            python validation/phase6_aggregate_fold_seeds.py               --seed-report "validation/phase6/phase63b-r1-seeds/r1__${held}__20260926.json"               --seed-report "validation/phase6/phase63b-r1-seeds/r1__${held}__20260927.json"               --seed-report "validation/phase6/phase63b-r1-seeds/r1__${held}__20260928.json"               --out "validation/phase6/phase63b-r1-folds/r1__${held}.json"
+          done
+          args=()
+          for f in validation/phase6/phase63b-r1-folds/*.json; do args+=(--report "$f"); done
+          python validation/phase6_aggregate_sequence.py "${args[@]}"             --out validation/phase6/phase63b-r1-selection.json
+          python validation/phase63_guardrail.py validation/phase6/phase63b-r1-selection.json             --out validation/phase6/phase63b-r1-guardrail.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase63b-r1-held-corpus
+          path: |
+            validation/phase6/phase63b-r1-seeds/
+            validation/phase6/phase63b-r1-folds/
+            validation/phase6/phase63b-r1-selection.json
+            validation/phase6/phase63b-r1-guardrail.json
+
+  final_seed:
+    needs: [data_v3, aggregate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase63b-r1-data
+          path: validation/phase6/phase63b-r1-data
+      - name: Fit full-development R1 seed
+        run: |
+          python validation/phase63_train_final.py             validation/phase6/phase63b-r1-data/development/sequences.csv             --clip validation/phase6/phase63b-r1-data/clipping-cache/sequences.csv             --invariance validation/phase6/phase63b-r1-data/invariance-cache/sequences.csv             --seed "${{ matrix.seed }}" --max-epochs 80             --outdir validation/phase6/phase63b-r1-final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase63b-r1-final-seed-${{ matrix.seed }}
+          path: validation/phase6/phase63b-r1-final/
+
+  qualify:
+    needs: [data_v3, aggregate, final_seed]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen qualification runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0 onnx==1.19.0 onnxruntime==1.23.1
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase63b-r1-data
+          path: validation/phase6/phase63b-r1-data
+      - uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase63b-r1-held-corpus
+          path: validation/phase6/phase63b-r1-held
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase63b-r1-final-seed-*
+          merge-multiple: true
+          path: validation/phase6/phase63b-r1-final
+      - name: Export exact three-seed ONNX ensemble
+        run: |
+          sample="$(find validation/phase6/phase63b-r1-data/development/npz -name '*.npz' | sort | head -1)"
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase63_export_onnx.py               --state "validation/phase6/phase63b-r1-final/phase63b-r1-seed${seed}.pt"               --sample-trace "$sample"               --output "validation/phase6/phase63b-r1-final/r1-seed${seed}.onnx"
+          done
+      - name: Check PyTorch to ONNX parity
+        run: |
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase62_parity_padding_safe.py               --state "validation/phase6/phase63b-r1-final/phase63b-r1-seed${seed}.pt"               --onnx "validation/phase6/phase63b-r1-final/r1-seed${seed}.onnx"               --sequences validation/phase6/phase63b-r1-data/development/sequences.csv               --max-samples 64 --mos-tol 0.0001               --out "validation/phase6/phase63b-r1-final/parity-seed${seed}.json"
+          done
+      - name: Apply historical synthetic engineering diagnostics
+        id: synthetic
+        shell: bash
+        run: |
+          set +e
+          python validation/phase63_score_ensemble.py             validation/phase6/phase63b-r1-data/engineering-cache/sequences.csv             --onnx validation/phase6/phase63b-r1-final/r1-seed20260926.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260927.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260928.onnx             --out validation/phase6/phase63b-r1-final/engineering-scored.csv
+          python validation/phase63_engineering_gate.py             validation/phase6/phase63b-r1-final/engineering-scored.csv             --out validation/phase6/phase63b-r1-final/engineering-report.json
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Apply disjoint multilingual real-speech qualification
+        id: real
+        shell: bash
+        run: |
+          set +e
+          python validation/phase63_score_ensemble.py             validation/phase6/phase63b-r1-data/secondary-cache/sequences.csv             --onnx validation/phase6/phase63b-r1-final/r1-seed20260926.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260927.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260928.onnx             --out validation/phase6/phase63b-r1-final/real-speech-scored.csv
+          python validation/phase63b_report.py             validation/phase6/phase63b-r1-final/real-speech-scored.csv             validation/phase6/phase63b-r1-data/secondary-features.csv             --out validation/phase6/phase63b-r1-final/real-speech-report.json
+          python - <<'PY'
+          import json,sys
+          r=json.load(open("validation/phase6/phase63b-r1-final/real-speech-report.json"))
+          sys.exit(0 if r["passes_pre_reserve_engineering_screen"] else 2)
+          PY
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Build immutable R1 development bundle
+        if: steps.synthetic.outputs.rc == '0' && steps.real.outputs.rc == '0'
+        run: |
+          python validation/phase63_make_bundle.py             --onnx validation/phase6/phase63b-r1-final/r1-seed20260926.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260927.onnx             --onnx validation/phase6/phase63b-r1-final/r1-seed20260928.onnx             --state validation/phase6/phase63b-r1-final/phase63b-r1-seed20260926.pt             --state validation/phase6/phase63b-r1-final/phase63b-r1-seed20260927.pt             --state validation/phase6/phase63b-r1-final/phase63b-r1-seed20260928.pt             --training-report validation/phase6/phase63b-r1-final/phase63b-r1-seed20260926.json             --training-report validation/phase6/phase63b-r1-final/phase63b-r1-seed20260927.json             --training-report validation/phase6/phase63b-r1-final/phase63b-r1-seed20260928.json             --parity-report validation/phase6/phase63b-r1-final/parity-seed20260926.json             --parity-report validation/phase6/phase63b-r1-final/parity-seed20260927.json             --parity-report validation/phase6/phase63b-r1-final/parity-seed20260928.json             --guardrail-report validation/phase6/phase63b-r1-held/phase63b-r1-guardrail.json             --engineering-report validation/phase6/phase63b-r1-final/engineering-report.json             --real-speech-report validation/phase6/phase63b-r1-final/real-speech-report.json             --trace-provenance validation/phase6/phase63b-r1-data/phase63b-r1-data-freeze.json             --property-provenance validation/phase6/phase63b-r1-data/invariance-audio/property-provenance.json             --selection-provenance validation/phase6/phase63b-r1-data/reference-selection.json             --output validation/phase6/phase63b-r1-final/bundle.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase63b-r1-qualification
+          path: validation/phase6/phase63b-r1-final/
+      - name: Enforce all pre-reserve development gates
+        if: steps.synthetic.outputs.rc != '0' || steps.real.outputs.rc != '0'
+        run: exit 2
