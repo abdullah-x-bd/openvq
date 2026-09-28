@@ -1,155 +1,133 @@
 # Dataset ledger
 
-This ledger records how each subjective dataset has been used and whether it can still serve as untouched evidence.
+This ledger records how subjective datasets have been used and whether they remain eligible as untouched evidence.
 
-A dataset stops being an untouched holdout once its labels or results influence model design.
+A dataset becomes development evidence once its labels or results influence model design.
 
-## TCD-VoIP
+## Development corpora
 
-Purpose:
+### TCD-VoIP
 
-Common VoIP degradation families with subjective quality judgments.
-
-Use:
-
-- Phase 2 development;
-- Phase 3 train/development and frozen held-out test;
-- Phase 4 development;
-- Phase 5 cross-domain development;
-- Phase 5.1 repaired feature extraction, real-speech engineering references, grouped transfer, and leave-corpus-out analysis.
-
-Phase 5.1 rows:
+Rows used in Phase 6:
 
 384
 
-Current status:
+Use includes Phases 2-6 development, Phase 6A real-speech engineering references, Phase 6B summary modeling, and Phase 6E leave-one-corpus-out testing.
 
-Development evidence. Not an untouched future holdout.
+Status:
 
-## NISQA TEST P501
+Development evidence.
+
+### NISQA TEST P501
 
 Source:
 
 https://zenodo.org/records/4728081
 
-Purpose:
+Rows used in Phase 6:
 
-Reference-capable subjective speech-quality test conditions.
+240
 
-Historical frozen Phase 3 result, n = 240:
+Historical Phase 3 external result:
 
 - Pearson 0.8185
 - Spearman 0.8209
 - RMSE 0.6011 MOS
 
-Use:
+Phase 6 use:
 
-- Phase 3 external holdout;
-- Phase 4 development after unblinding;
-- Phase 5 development;
-- Phase 5.1 repaired development and leave-corpus-out analysis.
+- summary-model development;
+- source-verified trace export;
+- completely held-corpus sequence evaluation.
 
-Current status:
+Status:
 
 Development evidence.
 
-## NISQA TEST_FOR
+### NISQA TEST_FOR
 
-Purpose:
+Rows used in Phase 6:
 
-A second reference-capable NISQA foreign test subset.
+240
 
-Phase 4 untouched result, n = 240:
+Historical Phase 4 untouched result:
 
 - Pearson 0.6148
 - Spearman 0.5892
 - RMSE 0.7503 MOS
 
-It failed the predeclared Phase 4 Pearson/Spearman gate.
+Phase 6 use:
 
-Use after Phase 4:
+- summary-model development;
+- source-verified trace export;
+- completely held-corpus sequence evaluation.
 
-- Phase 5 development;
-- Phase 5.1 development and leave-corpus-out analysis.
-
-Current status:
+Status:
 
 Development evidence.
 
-## NISQA TEST_NSC
+### NISQA TEST_NSC
 
-The NISQA documentation identifies a 240-file TEST_NSC set, but the public archive endpoints used by the validation workflows did not expose the expected TEST_NSC directory through their ZIP listings.
+The public archive path used by OpenVQ has not exposed the expected TEST_NSC directory.
 
-No OpenVQ TEST_NSC score was produced during Phase 4.
+No OpenVQ TEST_NSC score has been reported.
 
-Current status:
+Status:
 
-Not consumed, but unavailable through the workflow path used so far. Do not imply that it was tested.
+Not consumed through the current workflow path.
 
-## EARS-EMO-OpenACE
+### EARS-EMO-OpenACE
 
 Source:
 
 https://huggingface.co/datasets/mcernak/EARS-EMO-OpenACE
 
-Purpose:
+Rows:
 
-Codec quality under emotional speech with human MUSHRA ratings and published objective-metric outputs.
+144
 
-Codecs:
+The dataset contains EVS, LC3, LC3Plus, and Opus conditions with human MUSHRA ratings. Published per-file POLQA values are available for 143 samples.
 
-- EVS
-- LC3
-- LC3Plus
-- Opus
-
-Phase 3 external result:
+Historical Phase 3 result:
 
 - OpenVQ Pearson 0.1607
 - OpenVQ Spearman 0.1465
 - published POLQA Pearson 0.7939
 - published POLQA Spearman 0.7818
 
-Use after Phase 3:
+Phase 6E held-out hybrid result:
 
-- Phase 4 forensics/development;
-- Phase 5 development;
-- Phase 5.1 repaired development, processing-family transfer, and leave-corpus-out analysis.
+- Pearson 0.3990
+- Spearman 0.4390
+- normalized RMSE 0.2362
 
-Phase 5.1 leave-corpus-out rich model:
+OpenACE has been used repeatedly for development and cannot serve as untouched Phase 6.1 proof. Its published per-file POLQA outputs remain useful for a scoped historical paired benchmark.
 
-- Pearson -0.4904
-- Spearman -0.4114
-
-Current status:
+Status:
 
 Development evidence.
 
-## TMHINT-QI
+### TMHINT-QI original
 
-Archive source used by Phase 5.1:
+Archive:
 
 `urgent-challenge/urgent26_track2_sqa / TMHINTQI.zip`
 
-### Important Phase 5.1 correction
+Verified release:
 
-The archive was historically labelled in OpenVQ as `TMHINT_QI_V2_TEST`.
+`TMHINT_QI_ORIGINAL`
 
-Phase 5.1 inspected the processing families and metadata and detected:
+Listener scale:
 
-- release: `TMHINT_QI_ORIGINAL`
-- observed listener score scale: 1 to 5
-- observed score minimum: 1.0
-- observed score maximum: 5.0
+1 to 5
 
-The earlier workflow transformed ratings with `1 + 0.8 * score`. That transform was unnecessary.
+Paired non-clean rows:
 
-Final Phase 5.1 pairing:
+1,455
 
-- test WAVs: 2,297
-- paired non-clean samples: 1,455
-- unresolved non-clean samples: 331
-- unique reference IDs: 192
+Unique reference IDs:
+
+192
 
 Provenance:
 
@@ -157,55 +135,44 @@ Provenance:
 - raw metadata SHA-256 `832ac3fdaf393e77f62edb096770f8ade9f52fbb574e9bebcab0bf9ba02732a5`
 - manifest SHA-256 `8af544f59d9f192d51ebc6837e5c50022576e0c5534618e36405ab4334835072`
 
-Historical interpretation:
+Phase 6 uses the native 1-to-5 target without the historical erroneous transform.
 
-- historical Pearson/Spearman remain useful correlation diagnostics because the incorrect transform was positive affine;
-- historical RMSE/MAE/bias based on the transformed target are not corrected absolute-error evidence;
-- Phase 5 v1 used transformed TMHINT targets during fitting and is retained only as a diagnostic baseline.
-
-Phase 5.1 leave-corpus-out rich model:
-
-- Pearson -0.0269
-- Spearman 0.0590
-- normalized RMSE 0.5047
-- floor fraction 0.7739
-
-Current status:
+Status:
 
 Development evidence.
 
+## Phase 6 development total
+
+The canonical Phase 6 development set contains 2,463 rows:
+
+- P501 240
+- TEST_FOR 240
+- OpenACE 144
+- TCD 384
+- TMHINT 1,455
+
+Canonical source identity uses SHA-256 of exact reference waveform bytes.
+
 ## URGENT 2026 subjective speech-quality data
 
-Subjective dataset:
+Subjective source:
 
 https://huggingface.co/datasets/urgent-challenge/urgent2026-sqa
 
-Challenge:
+Status:
 
-https://urgent-challenge.github.io/urgent2026/track1/
+**Untouched by Phase 6.1 model selection.**
 
-The release contains multilingual subjective quality data and includes simulated and real-world enhancement material.
+The released enhanced audio is not treated as its own clean reference.
 
-Current OpenVQ status:
+Full-reference use requires a separately verified exact reference map for simulated rows.
 
-**Untouched by Phase 5.1.**
+The reserve is not opened for a candidate that has failed the independent engineering promotion gate.
 
-Phase 5.1 explicitly did not consume URGENT 2026 subjective labels.
+## POLQA evidence
 
-Intended use:
+POLQA is not a training dependency.
 
-Candidate final external validation source for a future frozen Phase 6 model.
+Lawful published or licensed POLQA outputs may be compared only when they correspond to the same audio pairs and human targets.
 
-Rule:
-
-Do not use the selected final URGENT subset, labels, system identities, or performance feedback for Phase 6 model fitting or selection once the final holdout protocol is frozen.
-
-## POLQA data
-
-POLQA is not an OpenVQ training dependency.
-
-Lawfully obtained POLQA outputs may be used as a benchmark only when they correspond to exactly the same reference/degraded pairs and the same human subjective target.
-
-The locked direct-comparison protocol is:
-
-`validation/LOCKED_POLQA_PROTOCOL.md`
+OpenACE provides a historical public per-file example. A future external comparison must clearly distinguish development benchmarks from untouched validation.

@@ -7,6 +7,8 @@
 
 namespace openvq {
 
+struct PreparedPair;
+
 enum class BandwidthClass {
   kNarrowband,
   kWideband,
@@ -113,6 +115,8 @@ struct AnalysisResult {
   double active_level_reference_db = -120.0;
   double active_level_degraded_db = -120.0;
   double clipping_ratio = 0.0;
+  // Clipping measured on the degraded input before resampling/DC removal.
+  double input_clipping_ratio = 0.0;
   double missing_disturbance = 0.0;
   double added_disturbance = 0.0;
   double bad_section_fraction = 0.0;
@@ -126,6 +130,10 @@ class Analyzer {
   AnalysisResult Analyze(const AudioBuffer& reference,
                          const AudioBuffer& degraded,
                          const AnalysisOptions& options = {}) const;
+  // Phase 6 measurement contract: analyze an already prepared pair so base
+  // and advanced analysis share identical preprocessing and alignment.
+  AnalysisResult AnalyzePrepared(const PreparedPair& pair,
+                                 const AnalysisOptions& options = {}) const;
 };
 
 AudioBuffer LoadWav(const std::string& path);

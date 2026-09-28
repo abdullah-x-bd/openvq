@@ -1,0 +1,180 @@
+name: validation-phase6a-foundation
+
+on:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - "validation/engineering_matrix_real.py"
+      - "validation/phase6_*.py"
+      - "validation/phase6/**"
+      - ".github/workflows/validation-phase6a-foundation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install real-speech validation dependencies
+        run: |
+          python -m pip install --disable-pip-version-check huggingface_hub openpyxl
+      - name: Build Release with active tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Prove controlled failure harness is active
+        run: |
+          set +e
+          ./build/openvq_require_failure >/tmp/require.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/require.out
+          test "$rc" -ne 0
+          grep -q "requirement failed" /tmp/require.out
+      - name: Run independent six-reference real-speech suite
+        run: |
+          mkdir -p validation/phase6/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa             TCD-VOIP.zip --local-dir validation/phase6/tcd
+          unzip -q validation/phase6/tcd/TCD-VOIP.zip             -d validation/phase6/tcd/extracted
+          python validation/tcd_prepare.py             validation/phase6/tcd/extracted validation/phase6/tcd/manifests
+          python validation/engineering_matrix_real.py             validation/phase6/tcd/manifests/all.csv             --cli ./build/openvq_cli             --out validation/phase6/engineering-real.json --references 6
+      - name: Freeze frontend contract evidence
+        run: |
+          mkdir -p validation/phase6
+          python - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          files=["include/openvq/preprocessing.h","src/preprocessing.cpp","include/openvq/openvq.h",
+                 "src/openvq.cpp","include/openvq/advanced.h","src/advanced.cpp","tests/test_preprocessing.cpp"]
+          def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          out={"frontend_id":"openvq-frontend-phase6a-2026-09-26-v1",
+               "source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+               "files":{p:sha(p) for p in files},
+               "release_tests":"all CTest targets active; controlled failing Require reaches nonzero status",
+               "delay_contract_ms":[40,120,250,500],"unambiguous_delay_tolerance_ms":5}
+          Path("validation/phase6/frontend-freeze.json").write_text(json.dumps(out,indent=2)+"\n")
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase6a-foundation
+          path: |
+            validation/phase6/frontend-freeze.json
+            validation/phase6/engineering-real.json
+
+
+  summary:
+    needs: foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Verify frozen Phase 6A hashes
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          freeze=json.loads(Path("validation/phase6/frontend-freeze.json").read_text())
+          for p,expected in freeze["files"].items():
+              got=hashlib.sha256(Path(p).read_bytes()).hexdigest()
+              if got!=expected:
+                  raise SystemExit(f"frozen frontend drift: {p} {got} != {expected}")
+          print("frozen frontend verified", freeze["frontend_id"], freeze["source_commit"])
+          PY
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check             numpy scipy scikit-learn soundfile huggingface_hub openpyxl remotezip pyyaml
+      - name: Build frozen Phase 6A frontend
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Prepare TCD
+        run: |
+          mkdir -p validation/phase6/data/tcd
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa             TCD-VOIP.zip --local-dir validation/phase6/data/tcd
+          unzip -q validation/phase6/data/tcd/TCD-VOIP.zip -d validation/phase6/data/tcd/extracted
+          python validation/tcd_prepare.py validation/phase6/data/tcd/extracted validation/phase6/data/tcd/manifests
+      - name: Prepare NISQA P501 and TEST_FOR
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://zenodo.org/records/4728081/files/NISQA_Corpus.zip?download=1"
+          roots={"NISQA_TEST_P501/":Path("validation/phase6/data/p501"),
+                 "NISQA_TEST_FOR/":Path("validation/phase6/data/test-for")}
+          for p in roots.values():p.mkdir(parents=True,exist_ok=True)
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              for token,out in roots.items():
+                  mm=[n for n in names if token in n and not n.endswith("/")]
+                  if not mm:raise SystemExit("missing "+token)
+                  for n in mm:z.extract(n,path=out)
+          PY
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/p501 validation/phase6/data/p501.csv --family NISQA_TEST_P501 --expected 240
+          python validation/nisqa_holdout_prepare.py validation/phase6/data/test-for validation/phase6/data/test-for.csv --family NISQA_TEST_FOR --expected 240
+      - name: Prepare OpenACE
+        run: |
+          mkdir -p validation/phase6/data/openace
+          python - <<'PY'
+          from huggingface_hub import HfApi,snapshot_download
+          from pathlib import Path
+          repo="mcernak/EARS-EMO-OpenACE";info=HfApi().dataset_info(repo)
+          Path("validation/phase6/data/openace/revision.txt").write_text(info.sha+"\n")
+          snapshot_download(repo_id=repo,repo_type="dataset",revision=info.sha,local_dir="validation/phase6/data/openace/raw")
+          PY
+          python validation/openace_prepare.py validation/phase6/data/openace/raw validation/phase6/data/openace-raw.csv
+          python validation/manifest_pcm16.py validation/phase6/data/openace-raw.csv validation/phase6/data/openace.csv validation/phase6/data/openace-pcm16
+      - name: Prepare pinned TMHINT original
+        run: |
+          mkdir -p validation/phase6/data/tmhint
+          hf download --repo-type dataset urgent-challenge/urgent26_track2_sqa TMHINTQI.zip --local-dir validation/phase6/data/tmhint
+          unzip -q validation/phase6/data/tmhint/TMHINTQI.zip -d validation/phase6/data/tmhint/extracted
+          python validation/phase6_tmhint_prepare.py validation/phase6/data/tmhint/extracted validation/phase6/data/tmhint.csv             --archive validation/phase6/data/tmhint/TMHINTQI.zip             --exclusions validation/phase6/data/tmhint-exclusions.csv
+      - name: Extract rich-v3 features
+        run: |
+          python validation/phase6_extract_features.py validation/phase6/data/tcd/manifests/all.csv validation/phase6/tcd-features.csv             --dataset tcd --target-field human_mos --target-scale mos1to5 --group-field condition_id --system-field family --cli ./build/openvq_cli
+          python validation/phase6_extract_features.py validation/phase6/data/p501.csv validation/phase6/p501-features.csv             --dataset nisqa_p501 --target-field human_mos --target-scale mos1to5 --group-field condition_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase6_extract_features.py validation/phase6/data/test-for.csv validation/phase6/test-for-features.csv             --dataset nisqa_test_for --target-field human_mos --target-scale mos1to5 --group-field condition_id --system-field condition_id --cli ./build/openvq_cli
+          python validation/phase6_extract_features.py validation/phase6/data/openace.csv validation/phase6/openace-features.csv             --dataset openace --target-field distorted_mushra_rating --target-scale mushra100 --group-field speaker --system-field codec --speaker-field speaker --cli ./build/openvq_cli
+          python validation/phase6_extract_features.py validation/phase6/data/tmhint.csv validation/phase6/tmhint-features.csv             --dataset tmhint --target-field human_mos --target-scale mos1to5 --group-field group_id --system-field condition_id --cli ./build/openvq_cli
+      - name: Generate Phase 6 engineering evidence
+        run: |
+          python validation/engineering_matrix.py --cli ./build/openvq_cli --fuzz 80 --out validation/phase6/engineering.json
+          python validation/phase6_engineering_features.py validation/phase6/engineering.json validation/phase6/engineering-features.csv
+      - name: Build canonical source registry
+        run: |
+          python validation/phase6_registry.py --registry validation/phase6/datasets.yaml             --dataset tcd=validation/phase6/data/tcd/manifests/all.csv             --dataset nisqa_p501=validation/phase6/data/p501.csv             --dataset nisqa_test_for=validation/phase6/data/test-for.csv             --dataset openace=validation/phase6/data/openace.csv             --dataset tmhint=validation/phase6/data/tmhint.csv             --out validation/phase6/canonical-manifest.csv             --splits-out validation/phase6/splits.json
+          for d in tcd p501 test-for openace tmhint; do
+            python validation/phase6_attach_registry.py               validation/phase6/canonical-manifest.csv               validation/phase6/${d}-features.csv               validation/phase6/${d}-features-source.csv
+          done
+      - name: Fair summary-model experiment
+        run: |
+          python validation/phase6_summary_models.py             --dataset tcd=validation/phase6/tcd-features-source.csv             --dataset nisqa_p501=validation/phase6/p501-features-source.csv             --dataset nisqa_test_for=validation/phase6/test-for-features-source.csv             --dataset openace=validation/phase6/openace-features-source.csv             --dataset tmhint=validation/phase6/tmhint-features-source.csv             --engineering validation/phase6/engineering-features.csv             --out validation/phase6/phase6b-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase6b-summary
+          path: |
+            validation/phase6/phase6b-report.json
+            validation/phase6/canonical-manifest.csv
+            validation/phase6/splits.json
+            validation/phase6/*-features-source.csv
+            validation/phase6/engineering*.*
+            validation/phase6/data/*exclusions.csv
+            validation/phase6/data/openace/revision.txt

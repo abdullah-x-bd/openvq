@@ -1,5 +1,7 @@
 # Phase 5.1A evidence erratum
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 Date: 2026-09-26
 
 This document preserves the historical Phase 4 and Phase 5 v1 records and

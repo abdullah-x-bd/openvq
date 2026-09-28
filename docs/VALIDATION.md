@@ -1,138 +1,192 @@
 # Validation framework
 
-OpenVQ treats engineering correctness and subjective generalization as separate requirements.
+OpenVQ treats five requirements separately:
 
-A model can pass deterministic signal-processing tests and still fail to predict human quality on an unseen corpus. Phase 4 and Phase 5.1 demonstrated exactly that.
+1. frontend correctness;
+2. engineering sanity;
+3. subjective development generalization;
+4. deployment parity and reproducibility;
+5. untouched external validation.
 
-## Evidence classes
+Success in one class does not imply success in the others.
 
-### Engineering evidence
+## Frontend and trace correctness
 
-Used to verify that the analyzer behaves sensibly under known transformations.
+Phase 6A froze the native frontend only after Release tests, alignment regressions, and real-speech transport-delay checks passed.
 
-Examples:
+Phase 6.2A-B then corrected the Trace V1 FFT indexing defect and froze:
+
+- trace schema `openvq-trace-v2-2026-09-27`;
+- implementation `openvq-trace-spectral-v2-fft-corrected-2026-09-27`.
+
+Trace V2 is covered by FFT-versus-direct-DFT tests, Parseval checks, auditory-band fixtures, and exact recreation of all five development corpora.
+
+## Development subjective evidence
+
+Current development corpora:
+
+- TCD;
+- NISQA P501;
+- NISQA TEST_FOR;
+- OpenACE;
+- TMHINT-QI original.
+
+Total development rows: **2,463**.
+
+These corpora are development evidence and are not an untouched external reserve.
+
+## Leave-one-corpus-out evaluation
+
+One entire corpus is excluded from fitting and early stopping.
+
+Three fixed seeds are used:
+
+`20260926`, `20260927`, `20260928`.
+
+The aggregate selection rule remains:
+
+1. maximize weakest held-corpus Pearson/Spearman;
+2. maximize mean held-corpus correlation;
+3. minimize worst normalized RMSE.
+
+Phase 6.2G final ensembles:
+
+| Held corpus | Pearson | Spearman | normalized RMSE |
+| --- | ---: | ---: | ---: |
+| NISQA P501 | 0.6551 | 0.6384 | 0.1943 |
+| NISQA TEST_FOR | 0.5640 | 0.4656 | 0.1850 |
+| OpenACE | 0.4213 | 0.4659 | 0.2135 |
+| TCD | 0.5901 | 0.6129 | 0.2818 |
+| TMHINT | 0.3541 | 0.3281 | 0.2919 |
+
+Aggregate:
+
+- worst held-corpus correlation 0.3281;
+- mean held-corpus correlation 0.4887;
+- worst normalized RMSE 0.2919.
+
+Every held corpus is positively correlated under both Pearson and Spearman.
+
+## Property-constraint separation
+
+Phase 6.2G added a clipping-order property loss only after Phase 6.2F isolated clipping as the remaining protected engineering failure.
+
+The property fixtures are separate from the protected gate.
+
+Training thresholds:
+
+`0.85, 0.65, 0.45, 0.30, 0.18, 0.11`.
+
+Protected gate thresholds:
+
+`0.95, 0.50, 0.25, 0.08`.
+
+The sets are disjoint.
+
+Property fixtures do not supply subjective MOS targets. Human-only corpus-balanced validation RMSE continues to control early stopping.
+
+## Subjective no-regression guardrails
+
+Before Phase 6.2G results, the following limits were frozen:
+
+- every held-corpus Pearson and Spearman must remain positive;
+- worst held-corpus correlation must remain at least 90% of Phase 6.2E;
+- mean held-corpus correlation must remain at least 95% of Phase 6.2E;
+- worst normalized RMSE must remain within 105% of Phase 6.2E.
+
+Phase 6.2G passed all four requirements.
+
+## Engineering promotion gate
+
+A full-development learned candidate is not engineering-qualified unless it satisfies independent physical behavior.
+
+The protected gate checks:
 
 - identity;
 - pure delay;
 - dropout;
 - repeated dropout;
-- additive noise;
+- noise;
 - low-pass restriction;
 - clipping;
-- attenuation;
-- clock drift;
-- time scaling;
-- mixed impairments.
+- mixed degradation.
 
-### Development subjective evidence
+Phase 6.2F passed every protected check except one severe-clipping ordering relation.
 
-Used for model selection and diagnosis.
+Phase 6.2G reused the same protected gate unchanged and passed with zero failures:
 
-At the end of Phase 5.1:
+- identity 4.6062 MOS;
+- pure-delay maximum absolute change 0.00924 MOS;
+- zero >0.12 MOS reversals in every protected monotonic family.
 
-- TCD
-- NISQA P501
-- NISQA TEST_FOR
-- OpenACE
-- TMHINT-QI original
+## Deployment parity
 
-are all development evidence.
+The final Phase 6.2G candidate is a three-seed ONNX ensemble.
 
-### Untouched external evidence
+All three models passed PyTorch-to-ONNX parity at the 0.0001 MOS tolerance.
 
-Must not influence architecture, preprocessing, hyperparameters, stopping, or calibration before the candidate is frozen.
+Maximum absolute MOS differences:
 
-URGENT 2026 remains untouched at the end of Phase 5.1.
+- 0.00000119;
+- 0.00000095;
+- 0.00000167.
 
-## Phase 5.1 validation axes
+## Qualified development bundle
 
-### Grouped within-corpus transfer
+Phase 6.2G created the first immutable engineering-qualified development bundle in this sequence-model line.
 
-Groups repeated conditions/sources so near-duplicate evidence does not leak trivially across folds.
+- source commit `9c59fec790e0490c22b363474dd75b476f891f8f`;
+- pipeline ID `openvq-phase62g-749eaa80ea0a796cc15c`;
+- run `36422583627`;
+- qualification artifact `10980470659`;
+- artifact ZIP SHA-256 `407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c`.
 
-Useful for model development, but not sufficient for a generalization claim.
+Engineering qualification does not equal external validation.
 
-### Leave-one-corpus-out transfer
+## Untouched external evidence
 
-One entire subjective corpus is excluded from both fitting and inner model selection.
+URGENT 2026 subjective labels remain unconsumed.
 
-This is the strongest development diagnostic currently in the repository.
+The external protocol requires the exact Phase 6.2G bundle to remain frozen while the full-reference source map, exclusions, metrics, and source-cluster bootstrap unit are finalized.
 
-Phase 5.1 showed severe failures on held-out OpenACE and TMHINT despite reasonable grouped within-corpus metrics.
-
-Therefore future model selection must inspect leave-corpus-out performance rather than reporting only pooled or within-domain cross-validation.
-
-### Processing-family transfer
-
-Systems or impairment families are held apart to test whether a model learns actual quality structure rather than a corpus/system signature.
-
-Phase 5.1 found uneven transfer, including weak OpenACE codec and TMHINT noisy-family results.
-
-### Synthetic engineering suite
-
-Tests deterministic degradation families and monotonic behavior.
-
-The Phase 5.1 repaired suite also restores the independent pure-delay assertion that historical green runs had not actually exercised.
-
-### Real-speech engineering suite
-
-Uses six real TCD reference utterances and predeclared gates:
-
-- identity MOS >= 4.4;
-- absolute pure-delay MOS change <= 0.2;
-- worsening-severity Spearman <= -0.2.
-
-The canonical Phase 5.1 run passed with no failures.
+If external results influence the model, the reserve becomes development evidence.
 
 ## Subjective targets
 
-Human judgments remain the target.
+Human ratings remain the prediction target.
 
-Different corpora may use different protocols such as MOS or MUSHRA.
-
-Phase 5.1 normalizes targets to 0..1 for mixed-corpus fitting and labels cross-corpus error as **normalized error**, not interchangeable MOS error.
-
-Do not call normalized MUSHRA/MOS error “MOS RMSE.”
-
-## Required reporting
-
-For every relevant evaluation report:
-
-- n;
-- Pearson;
-- Spearman;
-- RMSE/MAE on a valid shared scale or clearly labelled normalized scale;
-- signed bias;
-- floor fraction;
-- ceiling fraction;
-- processing-family results where possible;
-- leave-corpus-out results for model-family decisions;
-- engineering failures;
-- dataset/evidence status.
-
-## Final frozen validation
-
-Before a future Phase 6 generalization claim:
-
-1. choose and document the untouched corpus/subset;
-2. freeze the candidate implementation and model ID;
-3. freeze pairing and preprocessing rules;
-4. freeze acceptance criteria;
-5. score without tuning;
-6. publish all failures.
-
-Do not inspect the final holdout repeatedly while changing the model.
+Cross-corpus absolute error is labelled normalized error when MOS and MUSHRA protocols are combined. Normalized error is not described as MOS RMSE.
 
 ## Direct POLQA comparison
 
-Human subjective scores remain the target.
+POLQA is an external benchmark only when lawful outputs exist for the exact same audio pairs.
 
-POLQA is a benchmark only when lawful outputs are available for exactly the same audio pairs.
+A direct comparison requires:
 
-Use:
+- the same reference/degraded samples;
+- the same human targets;
+- paired error statistics;
+- a predeclared protocol.
 
-`validation/LOCKED_POLQA_PROTOCOL.md`
+OpenACE contains historical per-file POLQA values, but OpenACE is development evidence.
 
-The existing Project OpenVQ direct-comparison rule uses paired bootstrap confidence intervals around RMSE difference and a predeclared +0.10 MOS non-inferiority margin.
+No Phase 6.2 result establishes P.863 conformance or general POLQA equivalence.
 
-Passing that project criterion would not establish ITU-T P.863 conformance.
+## Reporting rule
+
+Relevant reports include:
+
+- sample count;
+- Pearson;
+- Spearman;
+- valid RMSE/MAE scale;
+- signed bias;
+- saturation;
+- held-corpus results;
+- seed results;
+- parity;
+- engineering outcomes;
+- evidence status;
+- provenance.
+
+Failures remain part of the scientific record.

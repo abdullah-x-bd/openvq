@@ -1,0 +1,107 @@
+name: validation-phase62f-engineering-gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase62_train_padding_safe_final.py"
+      - "validation/phase62_export_padding_safe_onnx.py"
+      - "validation/phase62_parity_padding_safe.py"
+      - "validation/phase62_score_engineering_padding_safe_ensemble.py"
+      - "validation/phase62_make_ensemble_bundle.py"
+      - ".github/workflows/validation-phase62f-engineering-gate.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TRACE_RUN_ID: "36306154897"
+  TRACE_ARTIFACT: "openvq-phase62-trace-v2"
+
+jobs:
+  train_seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed training runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 torch==2.8.0
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Fit full-development padding-safe seed
+        run: |
+          python validation/phase62_train_padding_safe_final.py             validation/phase6/sequence-cache-v2/sequences.csv             --seed "${{ matrix.seed }}" --max-epochs 80             --outdir validation/phase6/phase62f-final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase62f-final-seed-${{ matrix.seed }}
+          path: validation/phase6/phase62f-final/
+
+  qualify:
+    needs: train_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install frozen qualification runtime
+        run: |
+          python -m pip install --disable-pip-version-check             numpy==2.1.3 torch==2.8.0 onnx==1.19.0 onnxruntime==1.23.1
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: phase62f-final-seed-*
+          merge-multiple: true
+          path: validation/phase6/phase62f-final
+      - name: Export the three evaluation-aligned ONNX models
+        run: |
+          sample="$(find validation/phase6/sequence-cache-v2/npz -name '*.npz' | sort | head -1)"
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase62_export_padding_safe_onnx.py               --state "validation/phase6/phase62f-final/learned-bands-padding-safe-seed${seed}.pt"               --sample-trace "$sample"               --output "validation/phase6/phase62f-final/learned-bands-padding-safe-seed${seed}.onnx"
+          done
+      - name: Check PyTorch to ONNX parity for every seed
+        run: |
+          for seed in 20260926 20260927 20260928; do
+            python validation/phase62_parity_padding_safe.py               --state "validation/phase6/phase62f-final/learned-bands-padding-safe-seed${seed}.pt"               --onnx "validation/phase6/phase62f-final/learned-bands-padding-safe-seed${seed}.onnx"               --sequences validation/phase6/sequence-cache-v2/sequences.csv               --max-samples 64 --mos-tol 0.0001               --out "validation/phase6/phase62f-final/parity-seed${seed}.json"
+          done
+      - name: Apply independent engineering gate to three-seed ensemble
+        id: engineering
+        shell: bash
+        run: |
+          set +e
+          python validation/phase62_score_engineering_padding_safe_ensemble.py             validation/phase6/model-engineering-v2/cache/sequences.csv             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260926.onnx             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260927.onnx             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260928.onnx             --out validation/phase6/phase62f-final/engineering-report.json
+          rc=$?
+          echo "engineering_rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Build immutable qualified bundle
+        if: steps.engineering.outputs.engineering_rc == '0'
+        run: |
+          python validation/phase62_make_ensemble_bundle.py             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260926.onnx             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260927.onnx             --onnx validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260928.onnx             --state validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260926.pt             --state validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260927.pt             --state validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260928.pt             --training-report validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260926.json             --training-report validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260927.json             --training-report validation/phase6/phase62f-final/learned-bands-padding-safe-seed20260928.json             --parity-report validation/phase6/phase62f-final/parity-seed20260926.json             --parity-report validation/phase6/phase62f-final/parity-seed20260927.json             --parity-report validation/phase6/phase62f-final/parity-seed20260928.json             --engineering-report validation/phase6/phase62f-final/engineering-report.json             --output validation/phase6/phase62f-final/bundle.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase62f-engineering-qualification
+          path: validation/phase6/phase62f-final/
+      - name: Enforce engineering promotion gate
+        if: steps.engineering.outputs.engineering_rc != '0'
+        run: exit 2

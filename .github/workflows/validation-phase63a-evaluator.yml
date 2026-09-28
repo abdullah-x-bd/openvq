@@ -1,0 +1,96 @@
+name: validation-phase63a-evaluator\n# phase63a contract revision 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase63_bundle_runtime.py"
+      - "validation/phase63_score_bundle.py"
+      - "validation/phase63_verify_candidate.py"
+      - "validation/phase63_padding_duration.py"
+      - ".github/workflows/validation-phase63a-evaluator.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  QUALIFICATION_ARTIFACT_ID: "10980470659"
+  QUALIFICATION_ZIP_SHA256: "407b04a1130b559ef59d54c63f3d40c02d24fb08c106ef80dc7fdf8f654d645c"
+  BUNDLE_SHA256: "9188ac73c104d53cb96b78e51a1e4a8bc1db9b02bcb660548faac945a5637e35"
+  HELD_ARTIFACT_ID: "10975650939"
+  HELD_ZIP_SHA256: "49df5d48081f7119a6c3b375eb46b8838e8a430d8899c01c85990ca60509bb7e"
+  ENGINEERING_REPORT_SHA256: "a49674b9c1e80bee1293ab9ccde46beb5735402c4b024149ddbde56f6da99b06"
+  GUARDRAIL_REPORT_SHA256: "855c3a43dcd59bba7ec35cd868f16a209ec21757c2001105fd0c7ab73c3fc9a3"
+  TRACE_RUN_ID: "36306154897"
+  TRACE_ARTIFACT: "openvq-phase62-trace-v2"
+
+jobs:
+  verify_evaluator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install qualified inference runtime
+        run: python -m pip install --disable-pip-version-check numpy==2.1.3 onnxruntime==1.23.1
+      - name: Record evaluator source
+        run: |
+          mkdir -p validation/phase6/phase63a
+          git rev-parse HEAD | tee validation/phase6/phase63a/evaluator-commit.txt
+          python -m pip freeze | sort > validation/phase6/phase63a/environment.txt
+      - name: Download qualification archive by immutable artifact ID and verify ZIP
+        run: |
+          mkdir -p validation/phase6/phase63a/candidate
+          curl --fail --location             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -o validation/phase6/phase63a/qualification.zip             "https://api.github.com/repos/abdullah-x-bd/openvq/actions/artifacts/${QUALIFICATION_ARTIFACT_ID}/zip"
+          echo "${QUALIFICATION_ZIP_SHA256}  validation/phase6/phase63a/qualification.zip" | sha256sum -c -
+          unzip -q validation/phase6/phase63a/qualification.zip -d validation/phase6/phase63a/candidate
+          echo "${BUNDLE_SHA256}  validation/phase6/phase63a/candidate/bundle.json" | sha256sum -c -
+      - name: Download held-corpus evidence separately and verify guardrail
+        run: |
+          mkdir -p validation/phase6/phase63a/held
+          curl --fail --location             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -o validation/phase6/phase63a/held.zip             "https://api.github.com/repos/abdullah-x-bd/openvq/actions/artifacts/${HELD_ARTIFACT_ID}/zip"
+          echo "${HELD_ZIP_SHA256}  validation/phase6/phase63a/held.zip" | sha256sum -c -
+          unzip -q validation/phase6/phase63a/held.zip -d validation/phase6/phase63a/held
+          echo "${GUARDRAIL_REPORT_SHA256}  validation/phase6/phase63a/held/phase62g-guardrail.json" | sha256sum -c -
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.TRACE_ARTIFACT }}
+          run-id: ${{ env.TRACE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Reproduce qualified engineering predictions with bundle-aware scorer
+        run: |
+          echo "${ENGINEERING_REPORT_SHA256}  validation/phase6/phase63a/candidate/engineering-report.json" | sha256sum -c -
+          python validation/phase63_verify_candidate.py             --bundle validation/phase6/phase63a/candidate/bundle.json             --candidate-dir validation/phase6/phase63a/candidate             --expected-bundle-sha256 "${BUNDLE_SHA256}"             --engineering-sequences validation/phase6/model-engineering-v2/cache/sequences.csv             --engineering-report validation/phase6/phase63a/candidate/engineering-report.json             --guardrail-report validation/phase6/phase63a/held/phase62g-guardrail.json             --expected-engineering-sha256 "${ENGINEERING_REPORT_SHA256}"             --expected-guardrail-sha256 "${GUARDRAIL_REPORT_SHA256}"             --outdir validation/phase6/phase63a
+      - name: Check trained-model padding and duration behavior
+        run: |
+          python validation/phase63_padding_duration.py             --bundle validation/phase6/phase63a/candidate/bundle.json             --candidate-dir validation/phase6/phase63a/candidate             --expected-bundle-sha256 "${BUNDLE_SHA256}"             --sequences validation/phase6/sequence-cache-v2/sequences.csv             --max-samples 32 --tol-mos 0.0001             --out validation/phase6/phase63a/padding-duration.json
+      - name: Prove required path has no POLQA dependency
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("validation/phase6/phase63a/polqa-status.json")
+          p.write_text(json.dumps({
+            "required_for_phase63":False,
+            "polqa_executable_present":False,
+            "polqa_score_file_supplied":False,
+            "status":"not_evaluated_not_required"
+          },indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase63a-evaluator-verification
+          path: |
+            validation/phase6/phase63a/phase63a-verification.json
+            validation/phase6/phase63a/engineering-rescored.csv
+            validation/phase6/phase63a/padding-duration.json
+            validation/phase6/phase63a/evaluator-commit.txt
+            validation/phase6/phase63a/environment.txt
+            validation/phase6/phase63a/polqa-status.json

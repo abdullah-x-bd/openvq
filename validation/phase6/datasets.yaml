@@ -1,0 +1,70 @@
+schema_version: 1
+frontend_id: openvq-frontend-phase6a-2026-09-26-v1
+feature_schema_id: openvq-rich-v3-2026-09-26-v1
+
+datasets:
+  tcd:
+    ancestry: TCD-VoIP
+    protocol: MOS_1_5
+    target_field: human_mos
+    target_scale: mos1to5
+    system_field: family
+    speaker_field: ""
+    role: development
+  nisqa_p501:
+    ancestry: NISQA
+    protocol: MOS_1_5
+    target_field: human_mos
+    target_scale: mos1to5
+    system_field: condition_id
+    speaker_field: ""
+    role: development
+  nisqa_test_for:
+    ancestry: NISQA
+    protocol: MOS_1_5
+    target_field: human_mos
+    target_scale: mos1to5
+    system_field: condition_id
+    speaker_field: ""
+    role: development
+  openace:
+    ancestry: OpenACE
+    protocol: MUSHRA_0_100
+    target_field: distorted_mushra_rating
+    target_scale: mushra100
+    system_field: codec
+    speaker_field: speaker
+    role: development
+  tmhint:
+    ancestry: TMHINT
+    release: TMHINT_QI_ORIGINAL
+    protocol: MOS_1_5
+    target_field: human_mos
+    target_scale: mos1to5
+    system_field: condition_id
+    speaker_field: ""
+    role: development
+
+expansion:
+  nisqa_train_sim:
+    ancestry: NISQA
+    role: candidate_training
+    expected_files: 10000
+    rights_note: verify per-source recording rights before trained-weight redistribution
+  nisqa_train_live:
+    ancestry: NISQA
+    role: candidate_training
+    expected_files: 1020
+    rights_note: verify corpus terms before trained-weight redistribution
+  tmhint_original_train:
+    ancestry: TMHINT
+    role: candidate_training
+  tmhint_qi_v2:
+    ancestry: TMHINT
+    role: candidate_training_or_evaluation
+
+reserved:
+  urgent_2026:
+    ancestry: URGENT2026
+    role: frozen_external_only
+    consume_labels_before_freeze: false

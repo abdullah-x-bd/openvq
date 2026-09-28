@@ -2,230 +2,136 @@
 
 ## Purpose
 
-OpenVQ is an independently derived full-reference speech-quality research engine for telecom, network testing, and drive-test applications.
+OpenVQ is an independently derived full-reference speech-quality research engine.
 
-It compares a known reference utterance with a degraded recording and returns a quality estimate plus timing, spectral, temporal, and telecom diagnostics.
+It compares reference and degraded speech and returns native diagnostics plus research score-path outputs. It does not implement POLQA or ITU-T P.863.
 
-It does not implement POLQA or ITU-T P.863.
-
-## Current architecture after Phase 5.1
-
-The Phase 5.1 audit separated the system into four conceptual layers:
+## Current architecture in Phase 6.1
 
 ```
-reference audio -------------------+
-                                   |
-                                   v
-                         shared preprocessing
-                                   |
-degraded audio --------------------+
-                                   |
-                                   v
-                      timing / alignment model
-                                   |
-              +--------------------+--------------------+
-              |                                         |
-              v                                         v
-       perceptual analysis                    coverage / telecom analysis
-              |                                         |
-              +--------------------+--------------------+
-                                   |
-                                   v
-                         interpretable features
-                   legacy19 / rich-v2 research schema
-                                   |
-                                   v
-                         research quality mapper
+reference audio ----------------------+
+                                      |
+                                      v
+                           frozen shared frontend
+                                      |
+degraded audio -----------------------+
+                                      |
+                                      v
+                    alignment + active-speech accounting
+                                      |
+                  +-------------------+-------------------+
+                  |                                       |
+                  v                                       v
+          native perceptual analysis              telecom/coverage analysis
+                  |                                       |
+                  +-------------------+-------------------+
+                                      |
+                         +------------+------------+
+                         |                         |
+                         v                         v
+                 global rich-v3 features     local trace v1
+                         |                         |
+                         +------------+------------+
+                                      |
+                              research mappers
+                    summary models / sequence models
 ```
 
-The important architectural change is that preprocessing and alignment are now shared infrastructure rather than partly duplicated assumptions inside base and advanced analyzers.
+The stable runtime foundation ends before the research mapper.
 
-## Shared preprocessing
+## Frozen frontend
 
-`src/preprocessing.cpp` provides the common native preparation path.
+Frontend ID:
 
-Phase 5.1 introduced:
+`openvq-frontend-phase6a-2026-09-26-v1`
 
-- one windowed-sinc resampling path;
-- one DC-removal path;
-- one prepared reference buffer;
-- one prepared degraded buffer;
-- shared consumption by base and advanced analysis.
+The frontend provides:
 
-This reduces feature disagreement caused by slightly different frontend treatment.
+- shared 48 kHz preprocessing;
+- one windowed-sinc resampler;
+- one DC-removal implementation;
+- shared prepared reference/degraded buffers;
+- global delay;
+- direct-match detection for transport-only delay;
+- bounded piecewise-continuous local alignment;
+- alignment confidence and coverage;
+- clock drift;
+- reference activity;
+- active coverage and lost active speech;
+- matched active levels;
+- separate raw-input clipping.
 
-Desktop and Android native builds compile the same preprocessing source.
+The same native preprocessing sources are compiled for desktop and Android.
 
-## Timing and alignment
+## Native analysis
 
-The analyzer performs:
+The analyzer computes spectral, perceptual, temporal, and telecom evidence including:
 
-- global delay estimation;
-- multi-region clock-drift estimation;
-- piecewise-continuous local alignment;
-- bounded local path movement;
-- alignment coverage;
-- alignment confidence.
-
-The alignment path is deliberately prevented from making arbitrary jumps across low-correlation regions.
-
-The design principle is:
-
-> correct nuisance timing, but do not align away a real missing word.
-
-## Active-speech accounting
-
-Phase 5.1 made active-speech coverage explicit.
-
-The analyzer now records:
-
-- active speech duration;
-- active coverage fraction;
-- lost active speech fraction;
-- active reference level;
-- active degraded level.
-
-If degraded audio does not cover active reference speech, that missing region becomes evidence instead of silently leaving the calculation.
-
-## Native perceptual and telecom analysis
-
-The native engine independently computes:
-
-### Spectral/perceptual
-
-- FFT spectral comparison;
-- ERB-band auditory representation;
-- 20 ms, 80 ms, and 200 ms multi-resolution similarity;
-- missing disturbance;
-- added disturbance;
+- FFT and ERB comparisons;
+- multi-resolution similarity;
+- missing and added disturbance;
 - asymmetric disturbance;
 - coloration;
-- spectral tilt;
 - noisiness;
-- loudness and active-level mismatch.
-
-### Temporal/telecom
-
-- temporal-envelope similarity;
-- modulation-spectrum similarity;
-- dropout and bad-section analysis;
+- active-level mismatch;
+- discontinuity;
 - clipping;
+- temporal-envelope and modulation similarity;
+- spectral tilt;
+- bad sections and worst intervals;
 - echo;
 - choppiness;
-- repeated-waveform or PLC-like freeze evidence;
-- residual intrusion;
-- clock drift;
-- worst-interval severity.
+- PLC-like repetition;
+- residual intrusion.
 
-## Feature schemas
+## Global feature schemas
 
-### legacy19
+`legacy19` is retained for historical ablation.
 
-The original 19 utterance summaries used by the Phase 4 and Phase 5 native mappers.
+`rich-v2` adds coverage, alignment, tail, drift, clipping, and confidence summaries.
 
-They are retained so measurement changes can be separated from model changes.
+`rich-v3` adds separate raw input clipping and is bound to the Phase 6A frontend.
 
-### rich-v2
+Summary-model experiments remain development evidence.
 
-Phase 5.1 adds 12 measurements:
+## Local trace
 
-- lost active speech;
-- active coverage;
-- alignment uncertainty;
-- raw active-level delta;
-- similarity p10 loss;
-- similarity p50 loss;
-- discontinuity p90;
-- longest bad interval;
-- severe-frame fraction;
-- absolute clock drift;
-- raw clipping ratio;
-- confidence deficit.
+Trace schema:
 
-Total: 31 features.
+`openvq-trace-v1-2026-09-26`
 
-The rich schema is a research representation, not a guarantee that the final product model must use all 31 features directly.
+The local trace retains 10 ms timeline evidence before utterance pooling.
 
-## Mapping layer
+It contains reference/degraded 64-band auditory vectors, activity, coverage, unmatched state, local confidence, local similarity, levels, and mapped-time offset.
 
-Historical mapping layers are preserved for reproducibility.
+The trace is paired with the rich-v3 global side vector.
 
-### Phase 3
+## Sequence-model research layer
 
-Native measurements plus optional external ViSQOL speech/audio expert values.
+Phase 6E evaluated:
 
-OpenACE showed fixed expert trust did not generalize.
+- native temporal;
+- learned bands;
+- hybrid.
 
-### Phase 4
+The hybrid model combines learned local sequence evidence with rich-v3 global features.
 
-Native-first constrained degree-two mapping.
+Hybrid won the frozen worst-held-corpus selection rule. It is not the product model.
 
-Engineering behavior improved, but untouched external testing failed.
+The full-development hybrid candidate passed ONNX parity but failed the independent engineering gate. It is therefore retained as research evidence only.
 
-### Phase 5
+## Runtime boundary
 
-Five-domain refit of the legacy feature family.
+Current product-facing code can use the native analyzer and diagnostics.
 
-It improved breadth but remained weak on TMHINT and later proved to have a TMHINT target-scale evidence defect.
+The Phase 6 sequence model is not integrated as the released MOS path.
 
-### Phase 5.1
+This boundary is intentional. Model exportability is not sufficient for promotion when independent engineering sanity fails.
 
-The repaired frontend was tested with:
+## External metrics
 
-- constrained legacy19 mapper;
-- constrained rich-v2 mapper;
-- small rich-v2 MLP diagnostic.
+ViSQOL remains an optional external benchmark and historical expert signal.
 
-The constrained rich model is exported as a research artifact only.
+POLQA is a benchmark only when lawful outputs are available for the exact same pairs.
 
-The MLP is diagnostic only.
-
-Neither is promoted into the product runtime because leave-corpus-out transfer is not strong enough.
-
-## ViSQOL relationship
-
-ViSQOL is an optional external project and is not the OpenVQ core.
-
-OpenVQ's native analyzer performs its own:
-
-- preprocessing;
-- alignment;
-- timing analysis;
-- perceptual spectral analysis;
-- temporal analysis;
-- telecom diagnostics.
-
-ViSQOL was used as expert evidence in historical Phase 3 work and remains a benchmark/optional external signal.
-
-## POLQA relationship
-
-POLQA is used only as a benchmark when lawful outputs are available.
-
-OpenVQ:
-
-- contains no POLQA source code;
-- does not implement P.863;
-- does not claim P.863 conformance;
-- does not require POLQA at runtime.
-
-A direct comparison must score the exact same audio pairs against the same human target.
-
-## Runtime status
-
-The current CLI and Android runtime expose the native analyzer and historical score paths.
-
-The Phase 5.1 constrained research model is not integrated into the production scoring path because the Phase 5.1 validation itself shows poor unseen-corpus transfer.
-
-The repaired preprocessing and analysis changes are integrated.
-
-## Phase 6 architectural handoff
-
-Phase 6 should preserve the Phase 5.1 native measurement foundation while testing whether a compact learned representation/mapper can generalize better.
-
-The current evidence supports:
-
-- using rich-v2 as interpretable auxiliary information;
-- testing compact ANN architectures;
-- keeping engineering gates outside the learned model as independent tests;
-- using leave-corpus-out and processing-family transfer during development;
-- reserving URGENT 2026 for a frozen final candidate.
+OpenVQ contains no POLQA source and makes no P.863 conformance claim.

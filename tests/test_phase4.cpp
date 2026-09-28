@@ -1,6 +1,6 @@
 #include "openvq/phase4.h"
+#include "test_support.h"
 
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -27,18 +27,18 @@ int main() {
   r.advanced.residual_intrusion = 0.083021;
 
   const auto native = openvq::EvaluatePhase4(r);
-  assert(!native.experts_applied);
-  assert(std::abs(native.native_mos - 1.3854801113025141) < 1e-10);
-  assert(std::abs(native.mos - native.native_mos) < 1e-12);
+  OPENVQ_REQUIRE(!native.experts_applied);
+  OPENVQ_REQUIRE(std::abs(native.native_mos - 1.3854801113025141) < 1e-10);
+  OPENVQ_REQUIRE(std::abs(native.mos - native.native_mos) < 1e-12);
 
   const double speech_mos = 5.0 - 4.0 * 0.9013108025000001;
   const double audio_mos = 5.0 - 4.0 * 0.25548963;
   const auto hybrid =
       openvq::EvaluatePhase4(r, speech_mos, audio_mos);
-  assert(hybrid.experts_applied);
-  assert(std::abs(hybrid.mos - 1.3891907827815084) < 1e-10);
-  assert(std::abs(hybrid.expert_disagreement - 0.6458211725) < 1e-10);
-  assert(std::string(openvq::Phase4ModelId()) ==
+  OPENVQ_REQUIRE(hybrid.experts_applied);
+  OPENVQ_REQUIRE(std::abs(hybrid.mos - 1.3891907827815084) < 1e-10);
+  OPENVQ_REQUIRE(std::abs(hybrid.expert_disagreement - 0.6458211725) < 1e-10);
+  OPENVQ_REQUIRE(std::string(openvq::Phase4ModelId()) ==
          "phase4-native-poly2-constrained-2026-09-25-v3");
 
   std::cout << "Phase-4 candidate tests passed\n";

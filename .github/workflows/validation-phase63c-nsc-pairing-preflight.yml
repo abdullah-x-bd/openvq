@@ -1,0 +1,53 @@
+name: validation-phase63c-nsc-pairing-preflight\n# extraction contract revision 3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["validation/phase6"]
+    paths:
+      - "validation/phase63c_nsc_pairing_preflight.py"
+      - ".github/workflows/validation-phase63c-nsc-pairing-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  nsc_pairing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install pinned pairing-preflight runtime
+        run: python -m pip install --disable-pip-version-check remotezip==0.12.3 soundfile==0.13.1
+      - name: Extract TEST_NSC only from pinned Zenodo record
+        run: |
+          mkdir -p validation/phase6/phase63c-nsc/raw
+          python - <<'PY'
+          from remotezip import RemoteZip
+          from pathlib import Path
+          url="https://depositonce.tu-berlin.de/bitstream/11303/13012.5/9/NISQA_Corpus.zip"
+          out=Path("validation/phase6/phase63c-nsc/raw")
+          with RemoteZip(url) as z:
+              names=z.namelist()
+              mm=[n for n in names if "NISQA_TEST_NSC" in n.upper() and not n.endswith("/")]
+              if not mm:
+                  nearby=[n for n in names if "NSC" in n.upper()][:50]
+                  raise SystemExit("NISQA_TEST_NSC absent from pinned archive; NSC-like members="+repr(nearby))
+              for n in mm:z.extract(n,path=out)
+          print("extracted",len(mm),"TEST_NSC members")
+          PY
+      - name: Build label-blind exact-pair manifest
+        run: |
+          python validation/phase63c_nsc_pairing_preflight.py             validation/phase6/phase63c-nsc/raw             --manifest validation/phase6/phase63c-nsc/reference-manifest.csv             --ledger validation/phase6/phase63c-nsc/inclusion-ledger.csv             --out validation/phase6/phase63c-nsc/pairing-preflight.json
+          python -m pip freeze | sort > validation/phase6/phase63c-nsc/environment.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvq-phase63c-nsc-pairing-preflight
+          path: |
+            validation/phase6/phase63c-nsc/reference-manifest.csv
+            validation/phase6/phase63c-nsc/inclusion-ledger.csv
+            validation/phase6/phase63c-nsc/pairing-preflight.json
+            validation/phase6/phase63c-nsc/environment.txt

@@ -1,0 +1,147 @@
+name: validation-phase6ef-recovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SOURCE_RUN_ID: "36247385269"
+
+jobs:
+  recover_seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [20260926, 20260927, 20260928]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed training runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy==2.1.3 torch==2.8.0
+      - name: Download frozen Phase 6D traces
+        uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase6d-traces
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Recover learned-bands NISQA-P501 seed
+        run: |
+          mkdir -p validation/phase6/recovery
+          python validation/phase6_train_sequence_seed.py \
+            validation/phase6/sequence-cache/sequences.csv \
+            --mode learned_bands --held nisqa_p501 \
+            --seed "${{ matrix.seed }}" --max-epochs 80 \
+            --out "validation/phase6/recovery/seed-${{ matrix.seed }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase6e-recovery-seed-${{ matrix.seed }}
+          path: validation/phase6/recovery/*.json
+
+  aggregate_and_package:
+    needs: recover_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install fixed model/export runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            numpy==2.1.3 torch==2.8.0 onnx==1.18.0 onnxruntime==1.22.1 onnxscript==0.5.0
+      - name: Download frozen Phase 6D traces
+        uses: actions/download-artifact@v5
+        with:
+          name: openvq-phase6d-traces
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: validation/phase6
+      - name: Download the 14 completed original fold reports
+        uses: actions/download-artifact@v5
+        with:
+          pattern: phase6e-*
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: validation/phase6/phase6e-folds
+      - name: Download recovered seed reports
+        uses: actions/download-artifact@v5
+        with:
+          pattern: phase6e-recovery-seed-*
+          merge-multiple: true
+          path: validation/phase6/recovery
+      - name: Reconstruct missing fold identically from three seeds
+        run: |
+          rm -f validation/phase6/phase6e-folds/learned_bands__nisqa_p501.json
+          python validation/phase6_aggregate_fold_seeds.py \
+            --seed-report validation/phase6/recovery/seed-20260926.json \
+            --seed-report validation/phase6/recovery/seed-20260927.json \
+            --seed-report validation/phase6/recovery/seed-20260928.json \
+            --out validation/phase6/phase6e-folds/learned_bands__nisqa_p501.json
+          test "$(find validation/phase6/phase6e-folds -name '*.json' | wc -l)" -eq 15
+      - name: Select architecture from all 15 frozen LOCO reports
+        run: |
+          args=()
+          for f in validation/phase6/phase6e-folds/*.json; do args+=(--report "$f"); done
+          python validation/phase6_aggregate_sequence.py "${args[@]}" \
+            --out validation/phase6/phase6e-selection.json
+      - name: Fit deterministic full-development candidate
+        run: |
+          python validation/phase6_train_sequence_final.py \
+            validation/phase6/sequence-cache/sequences.csv \
+            --selection validation/phase6/phase6e-selection.json \
+            --outdir validation/phase6/final-candidate --max-epochs 80
+      - name: Export selected candidate to ONNX
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          SAMPLE="$(python -c 'import csv;print(next(csv.DictReader(open("validation/phase6/sequence-cache/sequences.csv")))["trace_path"])')"
+          python validation/phase6_export_onnx.py \
+            --mode "$MODE" --state "$STATE" --sample-trace "$SAMPLE" \
+            --output validation/phase6/final-candidate/openvq-phase6.onnx
+      - name: Verify PyTorch to ONNX parity
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          python validation/phase6_parity.py \
+            --mode "$MODE" --state "$STATE" \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --sequences validation/phase6/sequence-cache/sequences.csv \
+            --out validation/phase6/final-candidate/parity.json \
+            --max-samples 64 --mos-tol 0.0001
+      - name: Run selected model on independent engineering timelines
+        run: |
+          python validation/phase6_score_engineering_onnx.py \
+            validation/phase6/model-engineering/cache/sequences.csv \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --out validation/phase6/final-candidate/engineering.json
+      - name: Build immutable Phase 6F candidate bundle
+        run: |
+          MODE="$(python -c 'import json;print(json.load(open("validation/phase6/phase6e-selection.json"))["selected_mode"])')"
+          STATE="$(python -c 'import json;print(json.load(open("validation/phase6/final-candidate/phase6e-final.json"))["state_file"])')"
+          python validation/phase6_make_bundle.py \
+            --onnx validation/phase6/final-candidate/openvq-phase6.onnx \
+            --state "$STATE" \
+            --training-report validation/phase6/phase6e-selection.json \
+            --mode "$MODE" \
+            --output validation/phase6/final-candidate/pipeline.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvq-phase6ef-recovered-candidate
+          path: |
+            validation/phase6/phase6e-selection.json
+            validation/phase6/phase6e-folds/
+            validation/phase6/final-candidate/
+            validation/phase6/phase6d-freeze.json

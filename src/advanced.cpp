@@ -489,8 +489,61 @@ ResidualDiagnostics AnalyzeResidualStructure(
       freezes.push_back(Clamp((0.55 - change_ratio) / 0.55, 0.0, 1.0));
     }
   }
+  // PLC freezes are intentionally sparse. A 90th-percentile pool erases
+  // short repeated-frame events when they occupy only a few percent of a call.
+  const double aligned_freeze_component =
+      freezes.empty() ? 0.0 : Quantile(freezes, 0.98);
+
+  // A locally flexible alignment path must not be allowed to hide repeated
+  // packet-loss-concealment audio. Run an independent repeat detector on the
+  // prepared waveform using only the global transport-delay estimate. A
+  // repeat is suspicious only when the corresponding clean reference blocks
+  // genuinely differ while two adjacent degraded blocks are nearly identical.
+  std::vector<double> global_freezes;
+  const long global_delay = static_cast<long>(
+      std::llround(pair.alignment.global_delay_samples));
+  for (size_t rb = plc_frame; rb + plc_frame <= pair.reference.size();
+       rb += plc_frame) {
+    const long db = static_cast<long>(rb) + global_delay;
+    const long prev_db = db - static_cast<long>(plc_frame);
+    if (prev_db < 0 ||
+        db + static_cast<long>(plc_frame) >
+            static_cast<long>(pair.degraded.size())) {
+      continue;
+    }
+
+    double ref_delta = 0.0, deg_delta = 0.0;
+    double ref_energy = 0.0, deg_energy = 0.0;
+    for (size_t i = 0; i < plc_frame; ++i) {
+      const double r0 = pair.reference[rb - plc_frame + i];
+      const double r1 = pair.reference[rb + i];
+      const double d0 = pair.degraded[static_cast<size_t>(prev_db) + i];
+      const double d1 = pair.degraded[static_cast<size_t>(db) + i];
+      ref_delta += (r1 - r0) * (r1 - r0);
+      deg_delta += (d1 - d0) * (d1 - d0);
+      ref_energy += r0 * r0 + r1 * r1;
+      deg_energy += d0 * d0 + d1 * d1;
+    }
+    const double nr = std::sqrt(ref_delta / (ref_energy + kEps));
+    const double nd = std::sqrt(deg_delta / (deg_energy + kEps));
+    if (nr > 0.08) {
+      const double change_ratio = nd / (nr + 1e-9);
+      global_freezes.push_back(
+          Clamp((0.55 - change_ratio) / 0.55, 0.0, 1.0));
+    }
+  }
+  // The global-path repeat detector is intentionally event-oriented.
+  // PLC repeats can occupy much less than 2% of a call, so percentile pooling
+  // can erase a genuine short freeze. Use peak severity for this narrowly
+  // defined exact-repeat signal, while retaining robust pooling for the
+  // broader aligned detector above.
+  const double global_freeze_component =
+      global_freezes.empty()
+          ? 0.0
+          : *std::max_element(global_freezes.begin(), global_freezes.end());
   const double freeze_component =
-      freezes.empty() ? 0.0 : Quantile(freezes, 0.90);
+      std::max(aligned_freeze_component, global_freeze_component);
+
   out.choppiness = Clamp(
       0.46 * hole_component +
           0.18 * transition_component +
@@ -513,9 +566,8 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
     const AudioBuffer& degraded,
     const AnalysisOptions& options) const {
   AdvancedAnalysisResult out;
-  out.base = Analyzer().Analyze(reference, degraded, options);
-
   const PreparedPair pair = PreparePair(reference, degraded, options);
+  out.base = Analyzer().AnalyzePrepared(pair, options);
   const int sr = pair.sample_rate;
   const auto& r = pair.reference;
   const auto& d = pair.degraded;
@@ -576,10 +628,17 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
   frame_disc.reserve(out.base.frames.size());
   double longest_bad_ms = 0.0;
   double current_bad_ms = 0.0;
+  double previous_start_ms = -1e30;
   int severe_frames = 0;
   for (const auto& fq : out.base.frames) {
     frame_sims.push_back(fq.similarity);
     frame_disc.push_back(fq.discontinuity);
+    // out.base.frames contains active-reference frames only. A large timestamp
+    // gap therefore represents intervening inactive speech/silence and must
+    // break an accumulated bad interval.
+    if (fq.start_ms - previous_start_ms > options.hop_ms * 1.5) {
+      current_bad_ms = 0.0;
+    }
     const bool bad = fq.discontinuity > 0.45 || fq.similarity < 0.55;
     if (bad) {
       current_bad_ms += options.hop_ms;
@@ -588,6 +647,7 @@ AdvancedAnalysisResult AdvancedAnalyzer::Analyze(
     } else {
       current_bad_ms = 0.0;
     }
+    previous_start_ms = fq.start_ms;
   }
   out.advanced.similarity_p10 = Quantile(frame_sims, 0.10);
   out.advanced.similarity_p50 = Quantile(frame_sims, 0.50);
@@ -677,7 +737,8 @@ std::string ToJson(const AdvancedAnalysisResult& r) {
 
   std::ostringstream o;
   o << std::fixed << std::setprecision(6);
-  o << "{\"mos\":" << r.mos;
+  o << "{\"mos\":" << r.mos
+    << ",\"frontend_id\":\"" << kFrontendId << "\"";
   if (comma != std::string::npos) {
     o << base.substr(comma, base.size() - comma - 1);
   }

@@ -1,6 +1,6 @@
 #include "openvq/openvq.h"
+#include "test_support.h"
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -25,27 +25,27 @@ int main() {
   openvq::Analyzer analyzer;
   auto ref = SpeechLike(4.0);
   auto clean = analyzer.Analyze(ref, ref);
-  assert(clean.mos > 4.5);
-  assert(clean.confidence > 0.7);
+  OPENVQ_REQUIRE(clean.mos > 4.5);
+  OPENVQ_REQUIRE(clean.confidence > 0.7);
 
   auto dropped = ref;
   const int sr = ref.sample_rate;
   std::fill(dropped.samples.begin() + sr, dropped.samples.begin() + sr + sr / 3, 0.0f);
   auto bad = analyzer.Analyze(ref, dropped);
-  assert(bad.mos < clean.mos);
-  assert(bad.dimensions.discontinuity < clean.dimensions.discontinuity);
-  assert(!bad.events.empty());
+  OPENVQ_REQUIRE(bad.mos < clean.mos);
+  OPENVQ_REQUIRE(bad.dimensions.discontinuity < clean.dimensions.discontinuity);
+  OPENVQ_REQUIRE(!bad.events.empty());
 
   auto clipped = ref;
   for (float& v : clipped.samples) v = std::max(-1.0f, std::min(1.0f, v * 9.0f));
   auto clip = analyzer.Analyze(ref, clipped);
-  assert(clip.clipping_ratio > 0.001);
-  assert(clip.mos < clean.mos);
+  OPENVQ_REQUIRE(clip.clipping_ratio > 0.001);
+  OPENVQ_REQUIRE(clip.mos < clean.mos);
 
   auto delayed = ref;
   delayed.samples.insert(delayed.samples.begin(), sr / 5, 0.0f);
   auto del = analyzer.Analyze(ref, delayed);
-  assert(std::abs(std::abs(del.delay_ms) - 200.0) < 15.0);
+  OPENVQ_REQUIRE(std::abs(std::abs(del.delay_ms) - 200.0) < 15.0);
 
   std::cout << "OpenVQ tests passed\n";
   return 0;

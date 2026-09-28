@@ -1,5 +1,7 @@
 # Phase 4 external validation protocol
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 This protocol is frozen before OpenVQ Phase 4 is scored on NISQA TEST_FOR or
 NISQA TEST_NSC.
 

@@ -1,5 +1,7 @@
 # Frozen EARS-EMO-OpenACE external comparison protocol
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 This protocol is frozen before OpenVQ is scored on EARS-EMO-OpenACE.
 
 ## Candidate

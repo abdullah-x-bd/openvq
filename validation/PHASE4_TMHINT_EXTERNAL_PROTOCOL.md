@@ -1,3 +1,5 @@
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 > **Phase 5.1 evidence erratum**
 >
 > This file is preserved as the protocol that was frozen before the historical Phase 4 TMHINT run. Phase 5.1 later established that the downloaded archive is the **original TMHINT-QI release**, not the assumed version-II test, and that observed listener quality scores are already on a **1-to-5** scale. The historical Pearson and Spearman results remain useful because the mistaken target transform was positive affine. Historical RMSE, MAE, and bias derived from that transform are not corrected absolute-error evidence. See `docs/PHASE5_1_EVIDENCE_ERRATUM.md` and `docs/PHASE5_1_RESULTS.md`.

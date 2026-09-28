@@ -1,35 +1,41 @@
 package ai.openvq
 
 object OpenVqNative {
-    init { System.loadLibrary("openvq_android")     /**
-     * Runs the native-first Phase 4 development candidate without ViSQOL.
-     */
-    external fun analyzePcm16Phase4(
+    init {
+        System.loadLibrary("openvq_android")
+    }
+
+    /** Native diagnostics with the current repaired frontend. */
+    external fun analyzePcm16(
         reference: ShortArray,
         degraded: ShortArray,
         sampleRate: Int
     ): String
 
-    /**
-     * Runs Phase 4 with the optional capped robust ViSQOL expert correction.
-     */
-    external fun analyzePcm16Phase4WithExperts(
+    /** Full Phase 6 trace JSON for parity/debug tooling. */
+    external fun tracePcm16(
+        reference: ShortArray,
+        degraded: ShortArray,
+        sampleRate: Int
+    ): String
+
+    /** Historical frozen Phase 3 hybrid reproduction. */
+    external fun analyzePcm16Hybrid(
         reference: ShortArray,
         degraded: ShortArray,
         sampleRate: Int,
         visqolSpeechMos: Double,
         visqolAudioMos: Double
     ): String
-}
 
-    /** Returns the native diagnostic path without the external Phase-3 experts. */
-    external fun analyzePcm16(reference: ShortArray, degraded: ShortArray, sampleRate: Int): String
+    /** Historical native-first Phase 4 candidate. */
+    external fun analyzePcm16Phase4(
+        reference: ShortArray,
+        degraded: ShortArray,
+        sampleRate: Int
+    ): String
 
-    /**
-     * Runs the frozen Phase-3 candidate. The caller supplies Google ViSQOL
-     * v3.3.3 speech-mode and audio-mode MOS-LQO values for the same pair.
-     */
-    external fun analyzePcm16Hybrid(
+    external fun analyzePcm16Phase4WithExperts(
         reference: ShortArray,
         degraded: ShortArray,
         sampleRate: Int,

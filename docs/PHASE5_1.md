@@ -1,5 +1,7 @@
 # Phase 5.1 measurement and validation repair
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 **Status: complete as a measurement, evidence, and validation milestone.**
 
 Phase 5.1 is not a POLQA-parity claim and is not a production MOS release.

@@ -1,5 +1,7 @@
 # Phase 5.1 final results
 
+> **Historical document.** This file records the protocol, design, or result for the phase named below. It is preserved for reproducibility. Current project status is Phase 6.1. See `docs/PHASE6_1_RESULTS.md` and the root README for the active evidence boundary.
+
 Phase 5.1 is the measurement and validation repair milestone that follows the Phase 5 v1 cross-domain experiment.
 
 It is complete as a research and validation milestone. It is **not** a claim that OpenVQ has reached POLQA parity, and it did not promote a new product MOS model into the native runtime.
